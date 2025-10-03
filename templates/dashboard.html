@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Unified Plant Traits Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" />
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner">
+            <i class="fas fa-seedling fa-spin"></i>
+            <p>Loading plant data...</p>
+        </div>
+    </div>
+    <div class="landing-page" id="landingPage">
+        <h1>🌿 Unified Plant Traits Dashboard</h1>
+        <p>Explore traits and adaptations of 500+ plant species interactively.</p>
+        <input id="mainSearch" placeholder="🔍 Search a plant or filter by trait">
+        <button class="action-btn" data-action="explore">Explore Traits</button>
+        <button class="action-btn" data-action="compare">Compare Plants</button>
+    </div>
+    <div class="main-dashboard" id="mainDashboard" style="display:none;">
+        <ul class="tab-nav" id="dashboardTabs">
+            <li class="tab-btn active" data-tab="explore">Explore Traits</li>
+            <li class="tab-btn" data-tab="stress">Stress & Adaptations</li>
+            <li class="tab-btn" data-tab="compare">Compare Plants</li>
+        </ul>
+        <div class="tab-panel active" id="exploreTab">
+            <div id="rootTypeChart"></div>
+            <div id="sunburstChart"></div>
+            <button class="toggle-btn" data-toggle="wordcloud">Show Word Cloud</button>
+            <div id="wordCloudChart" style="display:none"></div>
+        </div>
+        <div class="tab-panel" id="stressTab">
+            <div id="stressBarChart"></div>
+            <div id="adaptationCards"></div>
+            <button class="toggle-btn" data-toggle="sankey">Show Sankey Diagram</button>
+            <div id="sankeyChart" style="display:none"></div>
+        </div>
+        <div class="tab-panel" id="compareTab">
+            <select id="compareSelect" multiple></select>
+            <div id="comparisonTable"></div>
+            <div id="radarChart"></div>
+            <div id="similarPlants"></div>
+        </div>
+        <button id="showAdvanced">Advanced Analytics</button>
+        <div id="advancedAnalytics" style="display:none;">
+            <div id="clusterChart"></div>
+            <div id="networkChart"></div>
+            <div id="vegetableChart"></div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
