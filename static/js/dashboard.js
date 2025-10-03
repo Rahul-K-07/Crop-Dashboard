@@ -380,7 +380,17 @@ dashboard.updateSelectedPlants = (plants) => {
 // Responsive: resize charts on window resize
 window.addEventListener('resize', () => {
     ['rootTypeChart','sunburstChart','stressBarChart','sankeyChart','radarChart','clusterChart','networkChart','vegetableChart','wordCloudChart']
-        .forEach(id => { if (document.getElementById(id)) { try { Plotly.Plots.resize(id); } catch (e) {} });
+.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+        try {
+            Plotly.Plots.resize(el);
+        } catch (e) {
+            console.error(`Error resizing ${id}:`, e);
+        }
+    }
+});
+
 });
 
 // Filters
