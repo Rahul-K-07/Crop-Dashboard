@@ -60,10 +60,14 @@ class UIManager {
 
     initAdvanced() {
         document.getElementById('showAdvanced').addEventListener('click', () => {
-            document.getElementById('advancedAnalytics').style.display = 'block';
-            loadClusterChart();
-            loadNetworkChart();
-            loadVegetableChart();
+            const wrap = document.getElementById('advancedAnalytics');
+            wrap.style.display = 'block';
+            // Delay rendering until after layout is updated
+            setTimeout(() => {
+                loadClusterChart();
+                loadNetworkChart();
+                loadVegetableChart();
+            }, 50);
         });
     }
 
@@ -294,14 +298,18 @@ document.addEventListener('click', async (e) => {
         const nowVisible = el.style.display === 'none';
         el.style.display = nowVisible ? 'block' : 'none';
         if (nowVisible) {
-            await loadWordCloud(dashboard.selectedPlants, dashboard.filters);
+            setTimeout(async () => {
+                await loadWordCloud(dashboard.selectedPlants, dashboard.filters);
+            }, 50);
         }
     } else if (toggle === 'sankey') {
         const el = document.getElementById('sankeyChart');
         const nowVisible = el.style.display === 'none';
         el.style.display = nowVisible ? 'block' : 'none';
         if (nowVisible) {
-            await loadSankey(dashboard.selectedPlants, dashboard.filters);
+            setTimeout(async () => {
+                await loadSankey(dashboard.selectedPlants, dashboard.filters);
+            }, 50);
         }
     }
 });
@@ -321,12 +329,17 @@ async function loadSankey(selectedPlants, filters) {
     const params = buildQuery(selectedPlants, filters);
     const res = await fetch('/api/sankey?' + params.toString());
     const data = await res.json();
+    if (!data.nodes || !data.nodes.length || !data.links || !data.links.source || !data.links.source.length) {
+        document.getElementById('sankeyChart').innerHTML = '<em>No Sankey data available for current filters.</em>';
+        return;
+    }
     const trace = {
         type: 'sankey',
-        node: { label: data.nodes },
-        link: data.links
+        node: { label: data.nodes, pad: 12, thickness: 12 },
+        link: data.links,
+        domain: { x: [0, 1], y: [0, 1] }
     };
-    Plotly.newPlot('sankeyChart', [trace], {title: 'Stress → Adaptations → Plants'});
+    Plotly.newPlot('sankeyChart', [trace], {title: 'Stress → Adaptations → Plants', margin: {l: 10, r: 10, t: 40, b: 10}});
 }
 
 // Similarity suggestions
@@ -363,6 +376,12 @@ dashboard.updateSelectedPlants = (plants) => {
     _origUpdateSelectedPlants(plants);
     updateSimilarSuggestions();
 };
+
+// Responsive: resize charts on window resize
+window.addEventListener('resize', () => {
+    ['rootTypeChart','sunburstChart','stressBarChart','sankeyChart','radarChart','clusterChart','networkChart','vegetableChart','wordCloudChart']
+        .forEach(id => { if (document.getElementById(id)) { try { Plotly.Plots.resize(id); } catch (e) {} });
+});
 
 // Filters
 class FiltersManager {
