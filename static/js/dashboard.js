@@ -3,10 +3,12 @@ class DashboardState {
     constructor() {
         this.selectedPlants = [];
         this.filters = {
-            root_type: [],
+            root: [],
+            type: [],
             growth_form: [],
             stress_tolerance: [],
-            vegetable: []
+            vegetable: [],
+            usage: []
         };
         this.currentTab = 'explore';
     }
@@ -158,10 +160,12 @@ class LoadingManager {
 function buildQuery(selectedPlants, filters) {
     const params = new URLSearchParams();
     (selectedPlants || []).forEach(p => params.append('plants[]', p));
-    (filters.root_type || []).forEach(v => params.append('root_type[]', v));
+    (filters.root || []).forEach(v => params.append('root[]', v));
+    (filters.type || []).forEach(v => params.append('type[]', v));
     (filters.growth_form || []).forEach(v => params.append('growth_form[]', v));
     (filters.stress_tolerance || []).forEach(v => params.append('stress_tolerance[]', v));
     (filters.vegetable || []).forEach(v => params.append('vegetable[]', v));
+    (filters.usage || []).forEach(v => params.append('usage[]', v));
     return params;
 }
 
@@ -174,7 +178,7 @@ async function loadRootTypeChart(selectedPlants, filters) {
         x: Object.keys(data.root_counts),
         y: Object.values(data.root_counts),
         type: 'bar'
-    }], {title: 'Plants per Root Type'});
+    }], {title: 'Plants per Root'});
     LoadingManager.hide();
 }
 
@@ -401,10 +405,12 @@ class FiltersManager {
     async init() {
         const res = await fetch('/api/filter-options');
         const data = await res.json();
-        this.applySelect('#filterRoot', data.root_types);
+        this.applySelect('#filterRoot', data.roots);
+        this.applySelect('#filterType', data.types);
         this.applySelect('#filterGrowth', data.growth_forms);
         this.applySelect('#filterStress', data.stress_tolerances);
         this.applySelect('#filterVegetable', ['Yes', 'No']);
+        this.applySelect('#filterUsage', data.usage);
     }
     applySelect(selector, items) {
         const el = $(selector);
@@ -412,10 +418,12 @@ class FiltersManager {
         el.select2({ placeholder: 'Any', width: '100%', data: options });
         el.on('change', () => {
             dashboard.filters = {
-                root_type: $('#filterRoot').val() || [],
+                root: $('#filterRoot').val() || [],
+                type: $('#filterType').val() || [],
                 growth_form: $('#filterGrowth').val() || [],
                 stress_tolerance: $('#filterStress').val() || [],
-                vegetable: $('#filterVegetable').val() || []
+                vegetable: $('#filterVegetable').val() || [],
+                usage: $('#filterUsage').val() || []
             };
             dashboard.refreshAllCharts();
         });
