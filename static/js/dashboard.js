@@ -195,8 +195,7 @@ async function loadSunburstChart(selectedPlants, filters) {
         values: data.values,
         branchvalues: 'total'
     }];
-    const title = (data.filters_active ? 'Growth → Leaf Traits → Plants' : 'Growth → Leaf Traits');
-    Plotly.newPlot('sunburstChart', trace, {title});
+    Plotly.newPlot('sunburstChart', trace, {title: 'Growth → Leaf Traits → Plants'});
 }
 
 async function loadStressBarChart(selectedPlants, filters) {
