@@ -263,9 +263,8 @@ async function loadRadarChart(selectedPlants) {
 }
 
 async function loadClusterChart() {
-    // Always use combined mode and auto k; use current filters
     const params = buildQuery(dashboard.selectedPlants, dashboard.filters);
-    const res = await fetch(`/api/clusters?cluster_mode=combined&k=auto&${params.toString()}`);
+    const res = await fetch(`/api/clusters?${params.toString()}`);
     const data = await res.json();
     const summaryEl = document.getElementById('clusterSummary');
     if (!data.points || !data.points.length) {
@@ -479,9 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
     new PlantSelector();
     new FiltersManager();
     dashboard.refreshAllCharts();
-    // Initial renders for clusters, usage pie and filtered list
-    loadClusterChart();
-    loadVegetableChart();
+    // Initial renders for filtered list only; advanced charts render on demand
     updateFilteredList();
     setTimeout(() => LoadingManager.hide(), 500); // Ensure loading overlay is visible briefly
 });
