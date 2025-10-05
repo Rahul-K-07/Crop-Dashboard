@@ -42,7 +42,7 @@ const dashboard = new DashboardState();
 class UIManager {
     constructor() {
         this.initTabs();
-        this.initAdvanced();
+        this.renderAdvanced();
         this.initLandingActions();
     }
 
@@ -59,17 +59,14 @@ class UIManager {
         });
     }
 
-    initAdvanced() {
-        document.getElementById('showAdvanced').addEventListener('click', () => {
-            const wrap = document.getElementById('advancedAnalytics');
-            wrap.style.display = 'block';
-            // Delay rendering until after layout is updated
-            setTimeout(() => {
-                loadClusterChart();
-                loadNetworkChart();
-                loadVegetableChart();
-            }, 50);
-        });
+    renderAdvanced() {
+        const wrap = document.getElementById('advancedAnalytics');
+        if (!wrap) return;
+        setTimeout(() => {
+            loadClusterChart();
+            loadNetworkChart();
+            loadVegetableChart();
+        }, 50);
     }
 
     initLandingActions() {
@@ -279,12 +276,9 @@ async function loadClusterChart() {
         clusters[p.Cluster].y.push(p.PCA2);
         clusters[p.Cluster].text.push(p.Label || p.Plant);
     });
-    const traces = Object.values(clusters).map(c => ({...c, mode: 'markers', type: 'scatter'}));
-    Plotly.newPlot('clusterChart', traces, {title: 'PCA Clusters (auto)'});
-
-    // No summary rendering in original UI
+    const traces = Object.values(clusters).map(c => ({...c, mode: 'markers', type: 'scatter', marker: {size: 8, opacity: 0.85}}));
     const title = data.meta && data.meta.basis_title ? `PCA Clusters — ${data.meta.basis_title} (k=${data.meta.k})` : 'PCA Clusters';
-    Plotly.newPlot('clusterChart', traces, {title});
+    Plotly.newPlot('clusterChart', traces, {title, xaxis: {title: 'PCA 1'}, yaxis: {title: 'PCA 2'}});
 
     if (summaryEl && data.summaries) {
         const items = Object.keys(data.summaries)
@@ -313,39 +307,7 @@ async function loadNetworkChart() {
     }], {title: 'Network Node Counts (simple view)'});
 }
 
-async function loadAdvancedClusters() {
-    const summaryEl = document.getElementById('advancedClusterSummary');
-    const chartId = 'advancedClusterChart';
-    const params = buildQuery(dashboard.selectedPlants, dashboard.filters);
-    const res = await fetch(`/api/clusters?cluster_mode=combined&k=auto&${params.toString()}`);
-    const data = await res.json();
-    if (!data.points || !data.points.length) {
-        document.getElementById(chartId).innerHTML = '<em>No clustering results for current filters.</em>';
-        if (summaryEl) summaryEl.innerHTML = '';
-        return;
-    }
-    const clusters = {};
-    data.points.forEach(p => {
-        clusters[p.Cluster] = clusters[p.Cluster] || {x: [], y: [], text: [], name: `Cluster ${p.Cluster}`};
-        clusters[p.Cluster].x.push(p.PCA1);
-        clusters[p.Cluster].y.push(p.PCA2);
-        clusters[p.Cluster].text.push(p.Label || p.Plant);
-    });
-    const traces = Object.values(clusters).map(c => ({...c, mode: 'markers', type: 'scatter'}));
-    const title = data.meta && data.meta.basis_title ? `PCA Clusters — ${data.meta.basis_title} (k=${data.meta.k})` : 'PCA Clusters';
-    Plotly.newPlot(chartId, traces, {title});
-
-    if (summaryEl && data.summaries) {
-        const items = Object.keys(data.summaries)
-            .sort((a,b) => Number(a) - Number(b))
-            .map(k => {
-                const s = data.summaries[k];
-                return `<div class="summary-item"><strong>C${k}</strong> — n=${s.size}; ` +
-                    `GF: ${s['Growth Form']}; RT: ${s['Root Type']}; ST: ${s['Stress Tolerance']}; Usage: ${s['Primary Usage']}</div>`;
-            }).join('');
-        summaryEl.innerHTML = `<div class="summary-title">Cluster summaries</div>${items}`;
-    }
-}
+// Removed advanced clusters function (PCA-only, single view)
 
 async function loadVegetableChart() {
     const res = await fetch('/api/vegetables');

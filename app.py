@@ -577,28 +577,13 @@ def get_vegetables():
 @app.route('/api/clusters')
 def get_clusters():
     filtered = apply_filters(df)
-    mode = request.args.get('cluster_mode', 'combined').lower()
-    k_arg = request.args.get('k', '').strip().lower()
 
     morph_cols = ['Root Type', 'Root Depth', 'Stem / Growth Form', 'Leaf Traits', 'Reproductive Traits']
     stress_cols = ['Stress Tolerance', 'Special Adaptations']
     usage_cols = ['VegetableFlag', 'FruitFlag', 'MedicinalFlag', 'CommercialFlag', 'OrnamentalFlag', 'FodderFlag']
 
-    if mode == 'morphology':
-        cols = morph_cols
-    elif mode == 'stress':
-        cols = stress_cols
-    elif mode == 'usage':
-        cols = usage_cols
-    elif mode in {'morphology+stress', 'combined'}:
-        cols = morph_cols + stress_cols
-    elif mode == 'stress+usage':
-        cols = stress_cols + usage_cols
-    elif mode == 'morphology+usage':
-        cols = morph_cols + usage_cols
-    else:
-        # Fallback to all
-        cols = morph_cols + stress_cols + usage_cols
+    # Single PCA clustering basis: use all traits
+    cols = morph_cols + stress_cols + usage_cols
 
     # Determine if any filters are active
     filters_active = any(
@@ -634,23 +619,17 @@ def get_clusters():
     else:
         pts = np.zeros((num_samples, 2))
 
-    # Resolve clusters 'k' automatically if not provided or set to 'auto'
-    try:
-        k_val = int(k_arg) if k_arg and k_arg != 'auto' else 0
-    except ValueError:
-        k_val = 0
-    if k_val <= 0:
-        # Heuristic: sqrt(n), bounded [2, 8], but allow 1 when n == 1
-        k_val = int(math.sqrt(num_samples)) if num_samples > 0 else 1
-        if num_samples == 1:
-            k_val = 1
-        else:
-            k_val = max(2, min(8, k_val))
+    # Resolve clusters 'k' automatically using heuristic
+    k_val = int(math.sqrt(num_samples)) if num_samples > 0 else 1
+    if num_samples == 1:
+        k_val = 1
+    else:
+        k_val = max(2, min(8, k_val))
 
-    # Clustering
+    # Clustering on PCA-reduced coordinates for PCA-only clustering
     n_clusters = max(1, min(k_val, num_samples))
     kmeans_local = KMeans(n_clusters=n_clusters, random_state=42)
-    labels = kmeans_local.fit_predict(X)
+    labels = kmeans_local.fit_predict(pts)
 
     # Build response with common names
     records = []
@@ -698,20 +677,9 @@ def get_clusters():
             ),
         }
 
-    # Human-friendly basis label
-    basis_map = {
-        'morphology': 'Morphology',
-        'stress': 'Stress & Adaptations',
-        'usage': 'Usage',
-        'morphology+stress': 'Morphology + Stress',
-        'stress+usage': 'Stress + Usage',
-        'morphology+usage': 'Morphology + Usage',
-        'combined': 'Combined (Morphology + Stress)',
-    }
-
     meta = {
-        'basis': mode,
-        'basis_title': basis_map.get(mode, 'All Traits'),
+        'basis': 'all',
+        'basis_title': 'All Traits (PCA)',
         'k': int(n_clusters),
         'filters_active': bool(filters_active),
         'n_points': int(num_samples),
