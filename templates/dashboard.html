@@ -15,6 +15,42 @@
         </div>
     </div>
 
+        <div class="content">
+            <ul class="tab-nav" id="dashboardTabs">
+                <li class="tab-btn active" data-tab="explore">Explore Traits</li>
+                <li class="tab-btn" data-tab="stress">Stress & Adaptations</li>
+                <li class="tab-btn" data-tab="compare">Compare Plants</li>
+                <li class="tab-btn" data-tab="analytics">Analytics</li>
+            </ul>
+
+            <div class="tab-panel active" id="exploreTab">
+                <div id="rootTypeChart" class="chart"></div>
+                <div id="sunburstChart" class="chart"></div>
+                <button class="toggle-btn" data-toggle="wordcloud">Show Word Cloud</button>
+                <div id="wordCloudChart" class="chart" style="display:none"></div>
+            </div>
+
+            <div class="tab-panel" id="stressTab">
+                <div id="stressBarChart" class="chart"></div>
+                <div id="adaptationCards" class="card-grid"></div>
+                <button class="toggle-btn" data-toggle="sankey">Show Sankey Diagram</button>
+                <div id="sankeyChart" class="chart" style="display:none"></div>
+            </div>
+
+            <div class="tab-panel" id="compareTab">
+                <div id="comparisonTable" class="table-responsive"></div>
+                <div id="radarChart" class="chart"></div>
+                <div id="similarPlants" class="similar-list"></div>
+            </div>
+
+            <div class="tab-panel" id="analyticsTab">
+                <div id="clusterChart" class="chart"></div>
+                <div id="clusterSummary" class="summary"></div>
+                <div id="networkChart" class="chart"></div>
+                <div id="vegetableChart" class="chart"></div>
+            </div>
+        </div>
+    </div>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>

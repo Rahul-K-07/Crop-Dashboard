@@ -32,6 +32,10 @@ class DashboardState {
         } else if (this.currentTab === 'compare') {
             loadComparisonTable(this.selectedPlants);
             loadRadarChart(this.selectedPlants);
+        } else if (this.currentTab === 'analytics') {
+            loadClusterChart();
+            loadNetworkChart();
+            loadVegetableChart();
         }
     }
 }
@@ -42,7 +46,6 @@ const dashboard = new DashboardState();
 class UIManager {
     constructor() {
         this.initTabs();
-        this.renderAdvanced();
         this.initLandingActions();
     }
 
@@ -59,21 +62,7 @@ class UIManager {
         });
     }
 
-    renderAdvanced() {
-        const wrap = document.getElementById('advancedAnalytics');
-        if (!wrap) return;
-        setTimeout(() => {
-            if (document.getElementById('clusterChart')) {
-                loadClusterChart();
-            }
-            if (document.getElementById('networkChart')) {
-                loadNetworkChart();
-            }
-            if (document.getElementById('vegetableChart')) {
-                loadVegetableChart();
-            }
-        }, 50);
-    }
+    
 
     initLandingActions() {
         document.querySelectorAll('.action-btn').forEach(btn => {
