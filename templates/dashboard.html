@@ -24,8 +24,11 @@
     </div>
     <div class="main-dashboard" id="mainDashboard" style="display:none;">
         <div class="sidebar">
-            <label for="filterRoot">Root Type</label>
-            <select id="filterRoot" multiple></select>
+            <label for="filterRootSystem">Root System</label>
+            <select id="filterRootSystem" multiple></select>
+
+            <label for="filterRootDepth">Root Depth / Type</label>
+            <select id="filterRootDepth" multiple></select>
 
             <label for="filterGrowth">Growth Form</label>
             <select id="filterGrowth" multiple></select>
@@ -38,6 +41,9 @@
                 <option value="Yes">Yes</option>
                 <option value="No">No</option>
             </select>
+
+            <label for="filterUsage">Usage</label>
+            <select id="filterUsage" multiple></select>
 
             <hr>
             <label for="compareSelect">Compare Plants</label>
@@ -73,6 +79,19 @@
 
             <button id="showAdvanced">Advanced Analytics</button>
             <div id="advancedAnalytics" style="display:none;">
+                <div class="controls">
+                    <label for="clusterMode">Cluster Mode</label>
+                    <select id="clusterMode">
+                        <option value="combined">Combined (Morphology + Stress)</option>
+                        <option value="morphology">Morphology Only</option>
+                        <option value="stress">Stress/Adaptations Only</option>
+                        <option value="usage">Usage Only</option>
+                        <option value="morphology+usage">Morphology + Usage</option>
+                        <option value="stress+usage">Stress + Usage</option>
+                    </select>
+                    <label for="clusterK">#Clusters</label>
+                    <input id="clusterK" type="number" value="5" min="2" max="15" step="1" />
+                </div>
                 <div id="clusterChart" class="chart"></div>
                 <div id="networkChart" class="chart"></div>
                 <div id="vegetableChart" class="chart"></div>

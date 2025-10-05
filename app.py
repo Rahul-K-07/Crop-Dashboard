@@ -6,7 +6,7 @@ import pandas as pd
 from flask import Flask, render_template, request, jsonify
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
 app = Flask(__name__)
 
@@ -19,22 +19,31 @@ def _normalize_columns(frame: pd.DataFrame) -> pd.DataFrame:
     # Standardize column names (strip and collapse spaces)
     frame.columns = [c.strip() for c in frame.columns]
 
-    # Ensure expected columns exist
+    # Ensure expected columns exist (support legacy and new dataset)
     expected = [
         'Plant',
-        'Root Type',
+        'Root',            # new dataset
+        'Type',            # new dataset (root depth/subtype)
+        'Root Type',       # legacy compatibility
         'Stem / Growth Form',
         'Leaf Traits',
         'Reproductive Traits',
         'Stress Tolerance',
         'Special Adaptations',
+        'Common Name',     # new dataset
+        'Vegetable',
+        'Fruit',
+        'Medicinal Plant',
+        'Commercial Crop',
+        'Ornamental Plant',
+        'Fodder Crop',
     ]
     for col in expected:
         if col not in frame.columns:
             frame[col] = 'Unknown'
 
     # Normalize whitespace and missing values
-    for col in expected + [c for c in frame.columns if 'Vegetable' in c]:
+    for col in expected:
         frame[col] = (
             frame[col]
             .astype(str)
@@ -43,16 +52,7 @@ def _normalize_columns(frame: pd.DataFrame) -> pd.DataFrame:
             .replace({'': 'Unknown'})
         )
 
-    # Create a consistent vegetable flag
-    veg_source_col = 'Vegetable'
-    if 'Vegetable (Yes/No)' in frame.columns:
-        veg_source_col = 'Vegetable (Yes/No)'
-    elif 'Vegetable' in frame.columns:
-        veg_source_col = 'Vegetable'
-    else:
-        frame['Vegetable'] = 'Unknown'
-        veg_source_col = 'Vegetable'
-
+    # Helper to convert many formats to Yes/No
     def _to_yes_no(val: str) -> str:
         v = (val or '').strip().lower()
         if v in {'y', 'yes', 'true', '1'}:
@@ -64,12 +64,27 @@ def _normalize_columns(frame: pd.DataFrame) -> pd.DataFrame:
             return 'Yes'
         return 'No'
 
-    frame['VegetableFlag'] = frame[veg_source_col].apply(_to_yes_no)
+    # Construct normalized columns
+    # Root Type fallback: prefer new 'Root' column; else legacy 'Root Type'
+    frame['Root Type'] = frame['Root'] if 'Root' in frame.columns else frame['Root Type']
+    # Root detail from 'Type' (depth/subtype); keep as its own field
+    frame['Root Depth'] = frame['Type'] if 'Type' in frame.columns else 'Unknown'
+
+    # Normalize usage flags (from 0/1 to Yes/No)
+    frame['VegetableFlag'] = frame['Vegetable'].apply(_to_yes_no)
+    frame['FruitFlag'] = frame['Fruit'].apply(_to_yes_no)
+    frame['MedicinalFlag'] = frame['Medicinal Plant'].apply(_to_yes_no)
+    frame['CommercialFlag'] = frame['Commercial Crop'].apply(_to_yes_no)
+    frame['OrnamentalFlag'] = frame['Ornamental Plant'].apply(_to_yes_no)
+    frame['FodderFlag'] = frame['Fodder Crop'].apply(_to_yes_no)
+
+    # Ensure Common Name fallback
+    frame['Common Name'] = frame['Common Name'].replace('Unknown', pd.NA).fillna(frame['Plant'])
 
     return frame
 
 
-df = pd.read_csv('combined_traits_table.csv').fillna('Unknown')
+df = pd.read_csv('Crop_dashboard Kerala.csv').fillna('Unknown')
 df = _normalize_columns(df)
 
 
@@ -105,9 +120,15 @@ def apply_filters(source: pd.DataFrame) -> pd.DataFrame:
     if selected_plants:
         filtered = filtered[filtered['Plant'].isin(selected_plants)]
 
-    root_types = _parse_list_arg('root_type')
-    if root_types:
-        filtered = filtered[filtered['Root Type'].isin(root_types)]
+    # Root system (from new dataset 'Root')
+    root_systems = _parse_list_arg('root_system')
+    if root_systems:
+        filtered = filtered[filtered['Root Type'].isin(root_systems)]
+
+    # Root depth/subtype (from new dataset 'Type')
+    root_depths = _parse_list_arg('root_depth')
+    if root_depths:
+        filtered = filtered[filtered['Root Depth'].isin(root_depths)]
 
     growth_forms = _parse_list_arg('growth_form')
     if growth_forms:
@@ -121,22 +142,56 @@ def apply_filters(source: pd.DataFrame) -> pd.DataFrame:
     if vegetables:
         filtered = filtered[filtered['VegetableFlag'].isin(vegetables)]
 
+    # Usage categories (any match): Vegetable, Fruit, Medicinal Plant, Commercial Crop, Ornamental Plant, Fodder Crop
+    usage = _parse_list_arg('usage')
+    if usage:
+        mask = pd.Series(False, index=filtered.index)
+        usage_map = {
+            'Vegetable': 'VegetableFlag',
+            'Fruit': 'FruitFlag',
+            'Medicinal Plant': 'MedicinalFlag',
+            'Commercial Crop': 'CommercialFlag',
+            'Ornamental Plant': 'OrnamentalFlag',
+            'Fodder Crop': 'FodderFlag',
+        }
+        for u in usage:
+            col = usage_map.get(u)
+            if col and col in filtered.columns:
+                mask = mask | (filtered[col] == 'Yes')
+        filtered = filtered[mask]
+
     return filtered
 
 
 # Precompute filter options and plant list
+USAGE_OPTIONS = ['Vegetable', 'Fruit', 'Medicinal Plant', 'Commercial Crop', 'Ornamental Plant', 'Fodder Crop']
 FILTER_OPTIONS = {
-    'root_types': sorted(df['Root Type'].dropna().unique().tolist()),
+    'root_systems': sorted(df['Root Type'].dropna().unique().tolist()),
+    'root_depths': sorted(df['Root Depth'].dropna().unique().tolist()),
     'growth_forms': sorted(df['Stem / Growth Form'].dropna().unique().tolist()),
     'stress_tolerances': sorted(df['Stress Tolerance'].dropna().unique().tolist()),
     'vegetable': ['Yes', 'No'],
+    'usage': USAGE_OPTIONS,
 }
 
 PLANT_LIST = [
     {
-        'name': row['Plant'],
+        'id': row['Plant'],  # scientific identifier for API params
+        'text': row['Common Name'],  # display label
+        'name': row['Common Name'],  # backward-compat display
+        'scientific': row['Plant'],
         'category': get_plant_category(row),
         'vegetable': row['VegetableFlag'],
+        'usage': [
+            u for u, col in (
+                ('Vegetable', 'VegetableFlag'),
+                ('Fruit', 'FruitFlag'),
+                ('Medicinal Plant', 'MedicinalFlag'),
+                ('Commercial Crop', 'CommercialFlag'),
+                ('Ornamental Plant', 'OrnamentalFlag'),
+                ('Fodder Crop', 'FodderFlag'),
+            ) if row[col] == 'Yes'
+        ],
     }
     for _, row in df.iterrows()
 ]
@@ -147,7 +202,7 @@ for plant in PLANT_LIST:
     if plant['vegetable'] == 'Yes':
         CATEGORY_MAPPINGS.setdefault('Edible', []).append(plant)
     # Drought tolerant grouping
-    plant_row = df.loc[df['Plant'] == plant['name']]
+    plant_row = df.loc[df['Plant'] == plant['id']]
     if not plant_row.empty:
         stress_val = str(plant_row.iloc[0]['Stress Tolerance']).lower()
         if 'drought' in stress_val:
@@ -156,13 +211,19 @@ for plant in PLANT_LIST:
 
 # Encoders and clustering
 TRAIT_COLS = [
-    'Root Type',
+    'Root Type',            # from new dataset 'Root'
+    'Root Depth',           # from new dataset 'Type'
     'Stem / Growth Form',
     'Leaf Traits',
     'Reproductive Traits',
     'Stress Tolerance',
     'Special Adaptations',
     'VegetableFlag',
+    'FruitFlag',
+    'MedicinalFlag',
+    'CommercialFlag',
+    'OrnamentalFlag',
+    'FodderFlag',
 ]
 
 # Ensure string dtype for encoders
@@ -200,7 +261,10 @@ def plant_list():
 @app.route('/api/plant-search')
 def plant_search():
     q = request.args.get('q', '').lower()
-    results = [plant for plant in PLANT_LIST if q in plant['name'].lower()]
+    results = [
+        plant for plant in PLANT_LIST
+        if q in str(plant.get('text', '')).lower() or q in str(plant.get('scientific', '')).lower()
+    ]
     return jsonify(results[:10])
 
 
@@ -214,7 +278,8 @@ def plants_by_category():
 def get_traits():
     filtered = apply_filters(df)
     root_counts = filtered['Root Type'].value_counts().to_dict()
-    return jsonify({'root_counts': root_counts})
+    # Expose as root_system_counts to reflect new dataset
+    return jsonify({'root_system_counts': root_counts})
 
 
 @app.route('/api/wordcloud')
@@ -259,11 +324,11 @@ def get_sunburst():
         parents.append(str(row['Stem / Growth Form']))
         values.append(int(row['count']))
 
-    # Level 3: Plants under each (GF, Leaf Trait)
+    # Level 3: Plants under each (GF, Leaf Trait) using common names for readability
     for _, row in filtered.iterrows():
         key = (row['Stem / Growth Form'], row['Leaf Traits'])
         parent_label = str(row['Leaf Traits'])
-        labels.append(str(row['Plant']))
+        labels.append(str(row['Common Name']))
         parents.append(parent_label)
         values.append(1)
 
@@ -286,7 +351,7 @@ def get_adaptations():
         if adaptations and adaptations.lower() != 'unknown':
             records.append(
                 {
-                    'plant': row['Plant'],
+                    'plant': row['Common Name'],
                     'adaptations': adaptations,
                     'vegetable': row['VegetableFlag'],
                 }
@@ -340,7 +405,10 @@ def get_sankey():
 
     for p in plants:
         index_map[('plant', p)] = len(nodes)
-        nodes.append(p)
+        # Use common name for label
+        common = df.loc[df['Plant'] == p, 'Common Name']
+        label = common.iloc[0] if not common.empty else p
+        nodes.append(str(label))
 
     sources = []
     targets = []
@@ -370,23 +438,33 @@ def get_sankey():
 def compare_plants():
     selected = _parse_list_arg('plants')
     if not selected:
-        return jsonify({'plants': [], 'traits': [], 'values': {}})
+        return jsonify({'plants': [], 'display_names': [], 'traits': [], 'values': {}})
     rows = df[df['Plant'].isin(selected)]
     traits = [
         'Root Type',
+        'Root Depth',
         'Stem / Growth Form',
         'Leaf Traits',
         'Reproductive Traits',
         'Stress Tolerance',
         'Special Adaptations',
         'VegetableFlag',
+        'FruitFlag',
+        'MedicinalFlag',
+        'CommercialFlag',
+        'OrnamentalFlag',
+        'FodderFlag',
     ]
     values = {plant: {} for plant in selected}
     for _, row in rows.iterrows():
         plant = row['Plant']
         for t in traits:
             values[plant][t] = str(row[t])
-    return jsonify({'plants': selected, 'traits': traits, 'values': values})
+    display_names = [
+        (df.loc[df['Plant'] == pid, 'Common Name'].iloc[0] if not df.loc[df['Plant'] == pid, 'Common Name'].empty else pid)
+        for pid in selected
+    ]
+    return jsonify({'plants': selected, 'display_names': display_names, 'traits': traits, 'values': values})
 
 
 @app.route('/api/radar')
@@ -430,7 +508,11 @@ def similar_plants():
             dist += d * d
         sims.append((math.sqrt(dist), other))
     sims.sort(key=lambda x: x[0])
-    return jsonify({'similar': [name for _, name in sims[:10]]})
+    similar = []
+    for _, sid in sims[:10]:
+        common = df.loc[df['Plant'] == sid, 'Common Name']
+        similar.append({'id': sid, 'text': (common.iloc[0] if not common.empty else sid)})
+    return jsonify({'similar': similar})
 
 
 @app.route('/api/network')
@@ -462,9 +544,11 @@ def trait_network():
 
     for _, row in filtered.iterrows():
         plant = row['Plant']
-        p_idx = add_node(f'p::{plant}', plant, 'plant')
+        common = row['Common Name']
+        p_idx = add_node(f'p::{plant}', str(common), 'plant')
         traits = [
             ('rt::' + row['Root Type'], row['Root Type'], 'Root Type'),
+            ('rd::' + row['Root Depth'], row['Root Depth'], 'Root Depth'),
             ('gf::' + row['Stem / Growth Form'], row['Stem / Growth Form'], 'Growth Form'),
             ('st::' + row['Stress Tolerance'], row['Stress Tolerance'], 'Stress Tolerance'),
         ]
@@ -490,8 +574,52 @@ def get_vegetables():
 @app.route('/api/clusters')
 def get_clusters():
     filtered = apply_filters(df)
-    points = filtered[['Plant', 'PCA1', 'PCA2', 'Cluster']].to_dict('records')
-    return jsonify({'points': points})
+    mode = request.args.get('cluster_mode', 'combined').lower()
+    k = int(request.args.get('k', '5'))
+
+    morph_cols = ['Root Type', 'Root Depth', 'Stem / Growth Form', 'Leaf Traits', 'Reproductive Traits']
+    stress_cols = ['Stress Tolerance', 'Special Adaptations']
+    usage_cols = ['VegetableFlag', 'FruitFlag', 'MedicinalFlag', 'CommercialFlag', 'OrnamentalFlag', 'FodderFlag']
+
+    if mode == 'morphology':
+        cols = morph_cols
+    elif mode == 'stress':
+        cols = stress_cols
+    elif mode == 'usage':
+        cols = usage_cols
+    elif mode in {'morphology+stress', 'combined'}:
+        cols = morph_cols + stress_cols
+    elif mode == 'stress+usage':
+        cols = stress_cols + usage_cols
+    elif mode == 'morphology+usage':
+        cols = morph_cols + usage_cols
+    else:
+        # Fallback to all
+        cols = morph_cols + stress_cols + usage_cols
+
+    # One-hot encode categorical features
+    enc = OneHotEncoder(handle_unknown='ignore', sparse=False)
+    X = enc.fit_transform(filtered[cols].astype(str))
+
+    # Dimensionality reduction
+    pca_local = PCA(n_components=2, random_state=42)
+    pts = pca_local.fit_transform(X)
+
+    # Clustering
+    kmeans_local = KMeans(n_clusters=min(k, max(1, len(filtered))), random_state=42)
+    labels = kmeans_local.fit_predict(X)
+
+    # Build response with common names
+    records = []
+    for (idx, row), (x, y), lab in zip(filtered.reset_index(drop=True).iterrows(), pts, labels):
+        records.append({
+            'Plant': row['Plant'],
+            'Label': row['Common Name'],
+            'PCA1': float(x),
+            'PCA2': float(y),
+            'Cluster': int(lab),
+        })
+    return jsonify({'points': records})
 
 
 if __name__ == '__main__':
