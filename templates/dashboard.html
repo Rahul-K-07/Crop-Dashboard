@@ -81,6 +81,11 @@
 
             <button id="showAdvanced">Advanced Analytics</button>
             <div id="advancedAnalytics" style="display:none;">
+                <div id="advancedClusterSummary" class="summary"></div>
+                <div id="advancedClusterChart" class="chart"></div>
+                <div class="explain">
+                    <p><strong>Why PCA for clustering?</strong> We one‑hot encode categorical traits to build a high‑dimensional feature space for clustering. PCA reduces this space to two dimensions to visualize patterns while keeping most variance. Clusters are computed on the full encoded space; PCA coordinates are used only for display.</p>
+                </div>
                 <div id="parallelCatsChart" class="chart"></div>
             </div>
         </div>
