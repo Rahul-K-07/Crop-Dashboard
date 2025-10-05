@@ -3,11 +3,10 @@ class DashboardState {
     constructor() {
         this.selectedPlants = [];
         this.filters = {
-            root_system: [],
-            root_depth: [],
+            root_type: [],
             growth_form: [],
             stress_tolerance: [],
-            usage: []
+            vegetable: []
         };
         this.currentTab = 'explore';
     }
@@ -32,10 +31,6 @@ class DashboardState {
         } else if (this.currentTab === 'compare') {
             loadComparisonTable(this.selectedPlants);
             loadRadarChart(this.selectedPlants);
-        } else if (this.currentTab === 'analytics') {
-            loadClusterChart();
-            loadNetworkChart();
-            loadVegetableChart();
         }
     }
 }
@@ -46,6 +41,7 @@ const dashboard = new DashboardState();
 class UIManager {
     constructor() {
         this.initTabs();
+        this.initAdvanced();
         this.initLandingActions();
     }
 
@@ -62,7 +58,18 @@ class UIManager {
         });
     }
 
-    
+    initAdvanced() {
+        document.getElementById('showAdvanced').addEventListener('click', () => {
+            const wrap = document.getElementById('advancedAnalytics');
+            wrap.style.display = 'block';
+            // Delay rendering until after layout is updated
+            setTimeout(() => {
+                loadClusterChart();
+                loadNetworkChart();
+                loadVegetableChart();
+            }, 50);
+        });
+    }
 
     initLandingActions() {
         document.querySelectorAll('.action-btn').forEach(btn => {
@@ -73,7 +80,6 @@ class UIManager {
         });
         // Simple main search: add first match to comparison on Enter
         const input = document.getElementById('mainSearch');
-        if (!input) return;
         input.addEventListener('keydown', async (e) => {
             if (e.key === 'Enter') {
                 const q = input.value.trim();
@@ -81,18 +87,16 @@ class UIManager {
                 const res = await fetch('/api/plant-search?q=' + encodeURIComponent(q));
                 const items = await res.json();
                 if (items.length) {
-                    const item = items[0];
-                    const value = item.id || item.scientific || item.name;
-                    const label = item.text || item.name || value;
+                    const name = items[0].name;
                     const compare = $('#compareSelect');
                     // Ensure option exists and select it
-                    if (!compare.find(`option[value="${value}"]`).length) {
-                        const newOption = new Option(label, value, true, true);
+                    if (!compare.find(`option[value="${name}"]`).length) {
+                        const newOption = new Option(name, name, true, true);
                         compare.append(newOption).trigger('change');
                     } else {
                         const values = compare.val() || [];
-                        if (!values.includes(value)) {
-                            compare.val(values.concat(value)).trigger('change');
+                        if (!values.includes(name)) {
+                            compare.val(values.concat(name)).trigger('change');
                         }
                     }
                     document.getElementById('landingPage').style.display = 'none';
@@ -113,15 +117,12 @@ class PlantSelector {
     async init() {
         const res = await fetch('/api/plant-list');
         this.plants = await res.json();
-        // Build global index: Plant ID -> Common Name
-        window.PLANT_INDEX = {};
-        (this.plants || []).forEach(p => { window.PLANT_INDEX[p.id] = p.text; });
         // Populate compare select with Select2
         const compare = $('#compareSelect');
         compare.select2({
             placeholder: 'Select plants to compare',
             width: '100%',
-            data: this.plants.map(p => ({ id: p.id, text: p.text }))
+            data: this.plants.map(p => ({ id: p.name, text: p.name }))
         });
         compare.on('change', (e) => {
             const values = compare.val() || [];
@@ -157,11 +158,10 @@ class LoadingManager {
 function buildQuery(selectedPlants, filters) {
     const params = new URLSearchParams();
     (selectedPlants || []).forEach(p => params.append('plants[]', p));
-    (filters.root_system || []).forEach(v => params.append('root_system[]', v));
-    (filters.root_depth || []).forEach(v => params.append('root_depth[]', v));
+    (filters.root_type || []).forEach(v => params.append('root_type[]', v));
     (filters.growth_form || []).forEach(v => params.append('growth_form[]', v));
     (filters.stress_tolerance || []).forEach(v => params.append('stress_tolerance[]', v));
-    (filters.usage || []).forEach(v => params.append('usage[]', v));
+    (filters.vegetable || []).forEach(v => params.append('vegetable[]', v));
     return params;
 }
 
@@ -170,12 +170,11 @@ async function loadRootTypeChart(selectedPlants, filters) {
     const params = buildQuery(selectedPlants, filters);
     const res = await fetch('/api/traits?' + params.toString());
     const data = await res.json();
-    const counts = data.root_system_counts || {};
     Plotly.newPlot('rootTypeChart', [{
-        x: Object.keys(counts),
-        y: Object.values(counts),
+        x: Object.keys(data.root_counts),
+        y: Object.values(data.root_counts),
         type: 'bar'
-    }], {title: 'Plants per Root System'});
+    }], {title: 'Plants per Root Type'});
     LoadingManager.hide();
 }
 
@@ -190,8 +189,7 @@ async function loadSunburstChart(selectedPlants, filters) {
         values: data.values,
         branchvalues: 'total'
     }];
-    const title = (data.filters_active ? 'Growth → Leaf Traits → Plants' : 'Growth → Leaf Traits');
-    Plotly.newPlot('sunburstChart', trace, {title});
+    Plotly.newPlot('sunburstChart', trace, {title: 'Growth → Leaf Traits → Plants'});
 }
 
 async function loadStressBarChart(selectedPlants, filters) {
@@ -231,8 +229,7 @@ async function loadComparisonTable(selectedPlants) {
     const data = await res.json();
     const container = document.getElementById('comparisonTable');
     if (!data.plants.length) { container.innerHTML = '<em>Select plants to compare.</em>'; return; }
-    const headers = data.display_names && data.display_names.length ? data.display_names : data.plants;
-    let html = '<table class="table"><thead><tr><th>Trait</th>' + headers.map(p => `<th>${p}</th>`).join('') + '</tr></thead><tbody>';
+    let html = '<table class="table"><thead><tr><th>Trait</th>' + data.plants.map(p => `<th>${p}</th>`).join('') + '</tr></thead><tbody>';
     data.traits.forEach(tr => {
         html += `<tr><td>${tr}</td>` + data.plants.map(p => `<td>${data.values[p][tr] || ''}</td>`).join('') + '</tr>';
     });
@@ -256,46 +253,24 @@ async function loadRadarChart(selectedPlants) {
 }
 
 async function loadClusterChart() {
-    const params = buildQuery(dashboard.selectedPlants, dashboard.filters);
-    const res = await fetch(`/api/clusters?${params.toString()}`);
+    const res = await fetch('/api/clusters');
     const data = await res.json();
-    const summaryEl = document.getElementById('clusterSummary');
-    if (!data.points || !data.points.length) {
-        document.getElementById('clusterChart').innerHTML = '<em>No clustering results for current filters.</em>';
-        if (summaryEl) summaryEl.innerHTML = '';
-        return;
-    }
     const clusters = {};
     data.points.forEach(p => {
         clusters[p.Cluster] = clusters[p.Cluster] || {x: [], y: [], text: [], name: `Cluster ${p.Cluster}`};
         clusters[p.Cluster].x.push(p.PCA1);
         clusters[p.Cluster].y.push(p.PCA2);
-        clusters[p.Cluster].text.push(p.Label || p.Plant);
+        clusters[p.Cluster].text.push(p.Plant);
     });
-    const traces = Object.values(clusters).map(c => ({...c, mode: 'markers', type: 'scatter', marker: {size: 8, opacity: 0.85}}));
-    const title = data.meta && data.meta.basis_title ? `PCA Clusters — ${data.meta.basis_title} (k=${data.meta.k})` : 'PCA Clusters';
-    Plotly.newPlot('clusterChart', traces, {title, xaxis: {title: 'PCA 1'}, yaxis: {title: 'PCA 2'}});
-
-    if (summaryEl && data.summaries) {
-        const items = Object.keys(data.summaries)
-            .sort((a,b) => Number(a) - Number(b))
-            .map(k => {
-                const s = data.summaries[k];
-                return `<div class="summary-item"><strong>C${k}</strong> — n=${s.size}; ` +
-                    `GF: ${s['Growth Form']}; RT: ${s['Root Type']}; ST: ${s['Stress Tolerance']}; Usage: ${s['Primary Usage']}</div>`;
-            }).join('');
-        summaryEl.innerHTML = `<div class="summary-title">Cluster summaries</div>${items}`;
-    }
+    const traces = Object.values(clusters).map(c => ({...c, mode: 'markers', type: 'scatter'}));
+    Plotly.newPlot('clusterChart', traces, {title: 'PCA Clusters'});
 }
 
 async function loadNetworkChart() {
     const res = await fetch('/api/network');
     const data = await res.json();
-    const counts = (data.nodes || []).reduce((acc, n) => {
-        const g = n.group || 'Unknown';
-        acc[g] = (acc[g] || 0) + 1;
-        return acc;
-    }, {});
+    // Simple fallback: list counts by group
+    const counts = data.nodes.reduce((acc, n) => { acc[n.group] = (acc[n.group]||0)+1; return acc; }, {});
     Plotly.newPlot('networkChart', [{
         type: 'bar',
         x: Object.keys(counts),
@@ -303,16 +278,13 @@ async function loadNetworkChart() {
     }], {title: 'Network Node Counts (simple view)'});
 }
 
-// Removed advanced clusters function (PCA-only, single view)
-
 async function loadVegetableChart() {
     const res = await fetch('/api/vegetables');
     const data = await res.json();
-    const counts = data.veg_counts || {};
     Plotly.newPlot('vegetableChart', [{
         type: 'pie',
-        labels: Object.keys(counts),
-        values: Object.values(counts)
+        labels: Object.keys(data.veg_counts),
+        values: Object.values(data.veg_counts)
     }], {title: 'Vegetable vs Non-Vegetable'});
 }
 
@@ -377,25 +349,23 @@ async function updateSimilarSuggestions() {
     const last = dashboard.selectedPlants[dashboard.selectedPlants.length - 1];
     const res = await fetch('/api/similar?plant=' + encodeURIComponent(last));
     const data = await res.json();
-    const label = (window.PLANT_INDEX && window.PLANT_INDEX[last]) || last;
-    container.innerHTML = '<strong>Similar to ' + label + ':</strong> ' +
-        data.similar.map(it => `<a href="#" data-plant="${it.id}" class="similar-item">${it.text}</a>`).join(', ');
+    container.innerHTML = '<strong>Similar to ' + last + ':</strong> ' +
+        data.similar.map(name => `<a href="#" data-plant="${name}" class="similar-item">${name}</a>`).join(', ');
 }
 
 document.addEventListener('click', (e) => {
     const link = e.target.closest('.similar-item');
     if (!link) return;
     e.preventDefault();
-    const id = link.getAttribute('data-plant');
+    const name = link.getAttribute('data-plant');
     const compare = $('#compareSelect');
-    if (!compare.find(`option[value="${id}"]`).length) {
-        const text = (window.PLANT_INDEX && window.PLANT_INDEX[id]) || id;
-        const newOption = new Option(text, id, true, true);
+    if (!compare.find(`option[value="${name}"]`).length) {
+        const newOption = new Option(name, name, true, true);
         compare.append(newOption).trigger('change');
     } else {
         const values = compare.val() || [];
-        if (!values.includes(id)) {
-            compare.val(values.concat(id)).trigger('change');
+        if (!values.includes(name)) {
+            compare.val(values.concat(name)).trigger('change');
         }
     }
 });
@@ -431,85 +401,33 @@ class FiltersManager {
     async init() {
         const res = await fetch('/api/filter-options');
         const data = await res.json();
-        this.applySelect('#filterRootSystem', data.root_systems);
-        this.applySelect('#filterRootDepth', data.root_depths);
+        this.applySelect('#filterRoot', data.root_types);
         this.applySelect('#filterGrowth', data.growth_forms);
         this.applySelect('#filterStress', data.stress_tolerances);
-        this.applySelect('#filterUsage', data.usage);
+        this.applySelect('#filterVegetable', ['Yes', 'No']);
     }
     applySelect(selector, items) {
-        if (typeof $ === 'undefined') { return; }
         const el = $(selector);
-        if (!el || el.length === 0) { return; }
         const options = (items || []).map(v => ({ id: v, text: v }));
         el.select2({ placeholder: 'Any', width: '100%', data: options });
         el.on('change', () => {
             dashboard.filters = {
-                root_system: $('#filterRootSystem').val() || [],
-                root_depth: $('#filterRootDepth').val() || [],
+                root_type: $('#filterRoot').val() || [],
                 growth_form: $('#filterGrowth').val() || [],
                 stress_tolerance: $('#filterStress').val() || [],
-                usage: $('#filterUsage').val() || []
+                vegetable: $('#filterVegetable').val() || []
             };
             dashboard.refreshAllCharts();
-            // If advanced is open, refresh advanced visuals too
-            const wrap = document.getElementById('advancedAnalytics');
-            if (wrap && wrap.style.display !== 'none') {
-                loadClusterChart();
-                loadNetworkChart();
-                loadVegetableChart();
-            }
-            // Always update filtered names
-            updateFilteredList();
         });
     }
 }
 
 // Initialize everything on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', () => {
-    const isClusterOnly = !!document.getElementById('clusterChart') && !document.querySelector('.tab-nav');
-    if (isClusterOnly) {
-        // Minimal boot for cluster-only page
-        setTimeout(() => { loadClusterChart(); }, 0);
-        return;
-    }
     LoadingManager.show();
     new UIManager();
     new PlantSelector();
     new FiltersManager();
     dashboard.refreshAllCharts();
-    // Initial renders for filtered list only; advanced charts render on demand
-    updateFilteredList();
     setTimeout(() => LoadingManager.hide(), 500); // Ensure loading overlay is visible briefly
 });
-
-async function updateFilteredList() {
-    try {
-        const params = buildQuery(dashboard.selectedPlants, dashboard.filters);
-        const res = await fetch('/api/filtered-plants?' + params.toString());
-        const data = await res.json();
-        const list = document.getElementById('filteredList');
-        if (!list) { return; }
-        const anyFilters = (
-            (dashboard.selectedPlants && dashboard.selectedPlants.length > 0) ||
-            (dashboard.filters && (
-                (dashboard.filters.root_system || []).length ||
-                (dashboard.filters.root_depth || []).length ||
-                (dashboard.filters.growth_form || []).length ||
-                (dashboard.filters.stress_tolerance || []).length ||
-                (dashboard.filters.usage || []).length
-            ))
-        );
-        if (!anyFilters) {
-            list.innerHTML = '<em>Select filters to see matching plants.</em>';
-            return;
-        }
-        if (!data.names || !data.names.length) {
-            list.innerHTML = '<em>No plants match current filters.</em>';
-            return;
-        }
-        list.innerHTML = data.names.map(n => `<div class="list-item">${n}</div>`).join('');
-    } catch (e) {
-        console.error('Failed to update filtered list', e);
-    }
-}
