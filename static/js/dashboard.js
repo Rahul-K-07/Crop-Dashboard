@@ -278,19 +278,9 @@ async function loadClusterChart() {
         clusters[p.Cluster].text.push(p.Label || p.Plant);
     });
     const traces = Object.values(clusters).map(c => ({...c, mode: 'markers', type: 'scatter'}));
-    const title = data.meta && data.meta.basis_title ? `PCA Clusters — ${data.meta.basis_title} (k=${data.meta.k})` : 'PCA Clusters';
-    Plotly.newPlot('clusterChart', traces, {title});
+    Plotly.newPlot('clusterChart', traces, {title: 'PCA Clusters (auto)'});
 
-    if (summaryEl && data.summaries) {
-        const items = Object.keys(data.summaries)
-            .sort((a,b) => Number(a) - Number(b))
-            .map(k => {
-                const s = data.summaries[k];
-                return `<div class="summary-item"><strong>C${k}</strong> — n=${s.size}; ` +
-                    `GF: ${s['Growth Form']}; RT: ${s['Root Type']}; ST: ${s['Stress Tolerance']}; Usage: ${s['Primary Usage']}</div>`;
-            }).join('');
-        summaryEl.innerHTML = `<div class="summary-title">Cluster summaries</div>${items}`;
-    }
+    // No summary rendering in original UI
 }
 
 async function loadParallelCats() {
