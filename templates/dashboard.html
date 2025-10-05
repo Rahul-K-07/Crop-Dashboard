@@ -2,25 +2,53 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>PCA Clusters</title>
+    <title>Unified Plant Traits Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2Pkf6BqNo1DqF6b+EMF4kVb8aKZ0XQ7Z0VJ2JbYij6vZ1JQ7Bbn2T3G8kg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 </head>
 <body>
-    <div class="content" style="max-width: 1100px; margin: 40px auto;">
-        <div id="advancedAnalytics">
-            <div id="clusterChart" class="chart"></div>
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner">
+            <i class="fas fa-seedling fa-spin"></i>
+            <p>Loading plant data...</p>
         </div>
     </div>
+    <div class="landing-page" id="landingPage">
+        <h1>🌿 Unified Plant Traits Dashboard</h1>
+        <p>Explore traits and adaptations of 500+ plant species interactively.</p>
+        <input id="mainSearch" placeholder="🔍 Search a plant or filter by trait">
+        <button class="action-btn" data-action="explore">Explore Traits</button>
+        <button class="action-btn" data-action="compare">Compare Plants</button>
+    </div>
+    <div class="main-dashboard" id="mainDashboard" style="display:none;">
+        <div class="sidebar">
+            <label for="filterRoot">Root Type</label>
+            <select id="filterRoot" multiple></select>
+
+            <label for="filterGrowth">Growth Form</label>
+            <select id="filterGrowth" multiple></select>
+
+            <label for="filterStress">Stress Tolerance</label>
+            <select id="filterStress" multiple></select>
+
+            <label for="filterVegetable">Vegetable</label>
+            <select id="filterVegetable" multiple>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+            </select>
+
+            <hr>
+            <label for="compareSelect">Compare Plants</label>
+            <select id="compareSelect" multiple></select>
+        </div>
 
         <div class="content">
             <ul class="tab-nav" id="dashboardTabs">
                 <li class="tab-btn active" data-tab="explore">Explore Traits</li>
                 <li class="tab-btn" data-tab="stress">Stress & Adaptations</li>
                 <li class="tab-btn" data-tab="compare">Compare Plants</li>
-                <li class="tab-btn" data-tab="analytics">Analytics</li>
             </ul>
 
             <div class="tab-panel active" id="exploreTab">
@@ -43,9 +71,9 @@
                 <div id="similarPlants" class="similar-list"></div>
             </div>
 
-            <div class="tab-panel" id="analyticsTab">
+            <button id="showAdvanced">Advanced Analytics</button>
+            <div id="advancedAnalytics" style="display:none;">
                 <div id="clusterChart" class="chart"></div>
-                <div id="clusterSummary" class="summary"></div>
                 <div id="networkChart" class="chart"></div>
                 <div id="vegetableChart" class="chart"></div>
             </div>
