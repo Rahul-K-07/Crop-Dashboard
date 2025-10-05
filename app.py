@@ -598,10 +598,18 @@ def get_clusters():
     )
 
     if filtered.empty:
-        return jsonify({'points': [], 'meta': {'basis': mode, 'k': 0, 'filters_active': filters_active, 'n_points': 0}})
+        meta = {
+            'basis': 'all',
+            'basis_title': 'All Traits (PCA)',
+            'k': 0,
+            'filters_active': bool(filters_active),
+            'n_points': 0,
+            'columns': cols,
+        }
+        return jsonify({'points': [], 'summaries': {}, 'meta': meta})
 
-    # One-hot encode categorical features
-    enc = OneHotEncoder(handle_unknown='ignore', sparse=False)
+    # One-hot encode categorical features (dense output for Plotly-friendly arrays)
+    enc = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
     X = enc.fit_transform(filtered[cols].astype(str))
 
     # Dimensionality reduction with safety for tiny datasets
