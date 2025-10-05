@@ -296,6 +296,17 @@ def get_wordcloud():
 @app.route('/api/sunburst')
 def get_sunburst():
     filtered = apply_filters(df)
+    # Determine if any filters are active to decide whether to include plant-level nodes
+    filters_active = any(
+        [
+            bool(_parse_list_arg('plants')),
+            bool(_parse_list_arg('root_system')),
+            bool(_parse_list_arg('root_depth')),
+            bool(_parse_list_arg('growth_form')),
+            bool(_parse_list_arg('stress_tolerance')),
+            bool(_parse_list_arg('usage')),
+        ]
+    )
     labels = ['All']
     parents = ['']
     values = [len(filtered)]
@@ -330,7 +341,7 @@ def get_sunburst():
         parents.append(parent_label)
         values.append(1)
 
-    return jsonify({'labels': labels, 'parents': parents, 'values': values})
+    return jsonify({'labels': labels, 'parents': parents, 'values': values, 'filters_active': filters_active})
 
 
 @app.route('/api/stress')
@@ -595,8 +606,20 @@ def get_clusters():
         # Fallback to all
         cols = morph_cols + stress_cols + usage_cols
 
+    # Determine if any filters are active
+    filters_active = any(
+        [
+            bool(_parse_list_arg('plants')),
+            bool(_parse_list_arg('root_system')),
+            bool(_parse_list_arg('root_depth')),
+            bool(_parse_list_arg('growth_form')),
+            bool(_parse_list_arg('stress_tolerance')),
+            bool(_parse_list_arg('usage')),
+        ]
+    )
+
     if filtered.empty:
-        return jsonify({'points': []})
+        return jsonify({'points': [], 'meta': {'basis': mode, 'k': 0, 'filters_active': filters_active, 'n_points': 0}})
 
     # One-hot encode categorical features
     enc = OneHotEncoder(handle_unknown='ignore', sparse=False)
@@ -637,7 +660,8 @@ def get_clusters():
 
     # Build response with common names
     records = []
-    for (idx, row), (x, y), lab in zip(filtered.reset_index(drop=True).iterrows(), pts, labels):
+    filtered_reset = filtered.reset_index(drop=True)
+    for (idx, row), (x, y), lab in zip(filtered_reset.iterrows(), pts, labels):
         records.append({
             'Plant': row['Plant'],
             'Label': row['Common Name'],
@@ -645,7 +669,62 @@ def get_clusters():
             'PCA2': float(y),
             'Cluster': int(lab),
         })
-    return jsonify({'points': records})
+
+    # Build simple cluster summaries highlighting dominant traits
+    def top_value(series: pd.Series) -> str:
+        vc = series.astype(str).value_counts()
+        if vc.empty:
+            return '—'
+        top, cnt = vc.index[0], int(vc.iloc[0])
+        return f"{top} ({cnt})"
+
+    summaries = {}
+    for c in sorted(set(labels.tolist())):
+        mask = (labels == c)
+        part = filtered_reset.loc[mask]
+        summaries[int(c)] = {
+            'size': int(mask.sum()),
+            'Growth Form': top_value(part['Stem / Growth Form']),
+            'Root Type': top_value(part['Root Type']),
+            'Stress Tolerance': top_value(part['Stress Tolerance']),
+            'Primary Usage': top_value(
+                part.apply(
+                    lambda r: 'Vegetable' if r.get('VegetableFlag') == 'Yes' else (
+                        'Fruit' if r.get('FruitFlag') == 'Yes' else (
+                            'Medicinal Plant' if r.get('MedicinalFlag') == 'Yes' else (
+                                'Commercial Crop' if r.get('CommercialFlag') == 'Yes' else (
+                                    'Ornamental Plant' if r.get('OrnamentalFlag') == 'Yes' else (
+                                        'Fodder Crop' if r.get('FodderFlag') == 'Yes' else 'None'
+                                    )
+                                )
+                            )
+                        )
+                    ), axis=1
+                )
+            ),
+        }
+
+    # Human-friendly basis label
+    basis_map = {
+        'morphology': 'Morphology',
+        'stress': 'Stress & Adaptations',
+        'usage': 'Usage',
+        'morphology+stress': 'Morphology + Stress',
+        'stress+usage': 'Stress + Usage',
+        'morphology+usage': 'Morphology + Usage',
+        'combined': 'Combined (Morphology + Stress)',
+    }
+
+    meta = {
+        'basis': mode,
+        'basis_title': basis_map.get(mode, 'All Traits'),
+        'k': int(n_clusters),
+        'filters_active': bool(filters_active),
+        'n_points': int(num_samples),
+        'columns': cols,
+    }
+
+    return jsonify({'points': records, 'summaries': summaries, 'meta': meta})
 
 
 @app.route('/api/usage')
@@ -677,7 +756,7 @@ def get_filtered_plants():
 def parallel_categories():
     filtered = apply_filters(df)
     if filtered.empty:
-        return jsonify({'dimensions': [], 'cluster_labels': []})
+        return jsonify({'dimensions': [], 'cluster_labels': [], 'title': 'No data'})
 
     # Determine a primary usage label per plant
     usage_priority = [
@@ -725,7 +804,8 @@ def parallel_categories():
         {'label': 'Cluster', 'values': [f'C{c}' for c in cluster_labels]},
     ]
 
-    return jsonify({'dimensions': dimensions, 'cluster_labels': cluster_labels})
+    title = 'Parallel Categories: Growth, Root, Stress, Usage (colored by clusters)'
+    return jsonify({'dimensions': dimensions, 'cluster_labels': cluster_labels, 'title': title, 'basis': 'combined'})
 
 
 if __name__ == '__main__':

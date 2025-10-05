@@ -195,7 +195,8 @@ async function loadSunburstChart(selectedPlants, filters) {
         values: data.values,
         branchvalues: 'total'
     }];
-    Plotly.newPlot('sunburstChart', trace, {title: 'Growth → Leaf Traits → Plants'});
+    const title = (data.filters_active ? 'Growth → Leaf Traits → Plants' : 'Growth → Leaf Traits');
+    Plotly.newPlot('sunburstChart', trace, {title});
 }
 
 async function loadStressBarChart(selectedPlants, filters) {
@@ -281,6 +282,19 @@ async function loadClusterChart() {
     Plotly.newPlot('clusterChart', traces, {title: 'PCA Clusters (auto)'});
 
     // No summary rendering in original UI
+    const title = data.meta && data.meta.basis_title ? `PCA Clusters — ${data.meta.basis_title} (k=${data.meta.k})` : 'PCA Clusters';
+    Plotly.newPlot('clusterChart', traces, {title});
+
+    if (summaryEl && data.summaries) {
+        const items = Object.keys(data.summaries)
+            .sort((a,b) => Number(a) - Number(b))
+            .map(k => {
+                const s = data.summaries[k];
+                return `<div class="summary-item"><strong>C${k}</strong> — n=${s.size}; ` +
+                    `GF: ${s['Growth Form']}; RT: ${s['Root Type']}; ST: ${s['Stress Tolerance']}; Usage: ${s['Primary Usage']}</div>`;
+            }).join('');
+        summaryEl.innerHTML = `<div class="summary-title">Cluster summaries</div>${items}`;
+    }
 }
 
 async function loadParallelCats() {
