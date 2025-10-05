@@ -7,7 +7,6 @@ class DashboardState {
             root_depth: [],
             growth_form: [],
             stress_tolerance: [],
-            vegetable: [],
             usage: []
         };
         this.currentTab = 'explore';
@@ -67,7 +66,7 @@ class UIManager {
             // Delay rendering until after layout is updated
             setTimeout(() => {
                 loadClusterChart();
-                loadNetworkChart();
+                loadParallelCats();
                 loadVegetableChart();
             }, 50);
         });
@@ -169,7 +168,6 @@ function buildQuery(selectedPlants, filters) {
     (filters.root_depth || []).forEach(v => params.append('root_depth[]', v));
     (filters.growth_form || []).forEach(v => params.append('growth_form[]', v));
     (filters.stress_tolerance || []).forEach(v => params.append('stress_tolerance[]', v));
-    (filters.vegetable || []).forEach(v => params.append('vegetable[]', v));
     (filters.usage || []).forEach(v => params.append('usage[]', v));
     return params;
 }
@@ -268,6 +266,10 @@ async function loadClusterChart() {
     const k = document.getElementById('clusterK').value || 5;
     const res = await fetch(`/api/clusters?cluster_mode=${encodeURIComponent(mode)}&k=${encodeURIComponent(k)}`);
     const data = await res.json();
+    if (!data.points || !data.points.length) {
+        document.getElementById('clusterChart').innerHTML = '<em>No clustering results for current filters.</em>';
+        return;
+    }
     const clusters = {};
     data.points.forEach(p => {
         clusters[p.Cluster] = clusters[p.Cluster] || {x: [], y: [], text: [], name: `Cluster ${p.Cluster}`};
@@ -279,62 +281,22 @@ async function loadClusterChart() {
     Plotly.newPlot('clusterChart', traces, {title: `PCA Clusters (${mode})`});
 }
 
-async function loadNetworkChart() {
-    const res = await fetch('/api/network');
+async function loadParallelCats() {
+    const params = buildQuery(dashboard.selectedPlants, dashboard.filters);
+    const res = await fetch('/api/parallel-categories?' + params.toString());
     const data = await res.json();
-    if (!data || !data.nodes || !data.nodes.length) {
-        document.getElementById('networkChart').innerHTML = '<em>No network data.</em>';
+    if (!data || !data.dimensions || !data.dimensions.length) {
+        document.getElementById('parallelCatsChart').innerHTML = '<em>No data available.</em>';
         return;
     }
-    // Compute simple layered layout by group
-    const groups = [...new Set(data.nodes.map(n => n.group))];
-    const groupX = {};
-    groups.forEach((g, i) => { groupX[g] = i / (Math.max(1, groups.length - 1) || 1); });
-    const nodesByGroup = {};
-    data.nodes.forEach((n, idx) => {
-        nodesByGroup[n.group] = nodesByGroup[n.group] || [];
-        nodesByGroup[n.group].push({ ...n, _idx: idx });
-    });
-    const pos = {};
-    Object.entries(nodesByGroup).forEach(([g, arr]) => {
-        const step = arr.length > 1 ? 1 / (arr.length - 1) : 0.5;
-        arr.forEach((n, j) => {
-            const x = groupX[g];
-            const y = arr.length > 1 ? j * step : 0.5;
-            pos[n._idx] = { x, y };
-        });
-    });
-    // Build edge trace
-    const edgeX = [];
-    const edgeY = [];
-    (data.links || []).forEach(l => {
-        const s = pos[l.source];
-        const t = pos[l.target];
-        if (!s || !t) return;
-        edgeX.push(s.x, t.x, null);
-        edgeY.push(s.y, t.y, null);
-    });
-    const edgeTrace = {
-        x: edgeX, y: edgeY, mode: 'lines', type: 'scatter',
-        line: { width: 1, color: '#aaa' }, hoverinfo: 'none', showlegend: false
-    };
-    // Build node trace
-    const nodeX = data.nodes.map((_, i) => pos[i].x);
-    const nodeY = data.nodes.map((_, i) => pos[i].y);
-    const labels = data.nodes.map(n => n.label);
-    const colors = data.nodes.map(n => groups.indexOf(n.group));
-    const nodeTrace = {
-        x: nodeX, y: nodeY, mode: 'markers+text', type: 'scatter',
-        text: labels, textposition: 'top center',
-        marker: { size: 8, color: colors, colorscale: 'Viridis' },
-        hovertext: labels, hoverinfo: 'text', showlegend: false
-    };
-    Plotly.newPlot('networkChart', [edgeTrace, nodeTrace], {
-        title: 'Trait Network (Plants ↔ Traits)',
-        xaxis: { showgrid: false, zeroline: false, visible: false },
-        yaxis: { showgrid: false, zeroline: false, visible: false },
-        margin: { l: 10, r: 10, t: 40, b: 10 }
-    });
+    const trace = [{
+        type: 'parcats',
+        dimensions: data.dimensions,
+        line: { color: data.cluster_labels || [], colorscale: 'Viridis' },
+        arrangement: 'perpendicular',
+        bundlecolors: true
+    }];
+    Plotly.newPlot('parallelCatsChart', trace, {title: 'Traits Parallel Categories'});
 }
 
 async function loadVegetableChart() {
@@ -440,7 +402,7 @@ dashboard.updateSelectedPlants = (plants) => {
 
 // Responsive: resize charts on window resize
 window.addEventListener('resize', () => {
-    ['rootTypeChart','sunburstChart','stressBarChart','sankeyChart','radarChart','clusterChart','networkChart','vegetableChart','wordCloudChart']
+    ['rootTypeChart','sunburstChart','stressBarChart','sankeyChart','radarChart','clusterChart','parallelCatsChart','vegetableChart','wordCloudChart']
 .forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -466,7 +428,6 @@ class FiltersManager {
         this.applySelect('#filterRootDepth', data.root_depths);
         this.applySelect('#filterGrowth', data.growth_forms);
         this.applySelect('#filterStress', data.stress_tolerances);
-        this.applySelect('#filterVegetable', ['Yes', 'No']);
         this.applySelect('#filterUsage', data.usage);
     }
     applySelect(selector, items) {
@@ -479,10 +440,16 @@ class FiltersManager {
                 root_depth: $('#filterRootDepth').val() || [],
                 growth_form: $('#filterGrowth').val() || [],
                 stress_tolerance: $('#filterStress').val() || [],
-                vegetable: $('#filterVegetable').val() || [],
                 usage: $('#filterUsage').val() || []
             };
             dashboard.refreshAllCharts();
+            // If advanced is open, refresh advanced visuals too
+            const wrap = document.getElementById('advancedAnalytics');
+            if (wrap && wrap.style.display !== 'none') {
+                loadClusterChart();
+                loadParallelCats();
+                loadVegetableChart();
+            }
         });
     }
 }

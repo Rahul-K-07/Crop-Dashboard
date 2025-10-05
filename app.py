@@ -1,4 +1,5 @@
 import math
+import numpy as np
 import re
 from collections import Counter, defaultdict
 
@@ -138,9 +139,8 @@ def apply_filters(source: pd.DataFrame) -> pd.DataFrame:
     if stress_tolerances:
         filtered = filtered[filtered['Stress Tolerance'].isin(stress_tolerances)]
 
-    vegetables = _parse_list_arg('vegetable')
-    if vegetables:
-        filtered = filtered[filtered['VegetableFlag'].isin(vegetables)]
+    # Note: 'vegetable' filter has been removed from the UI in favor of 'usage'.
+    # We intentionally do not process a standalone 'vegetable' filter here.
 
     # Usage categories (any match): Vegetable, Fruit, Medicinal Plant, Commercial Crop, Ornamental Plant, Fodder Crop
     usage = _parse_list_arg('usage')
@@ -170,7 +170,6 @@ FILTER_OPTIONS = {
     'root_depths': sorted(df['Root Depth'].dropna().unique().tolist()),
     'growth_forms': sorted(df['Stem / Growth Form'].dropna().unique().tolist()),
     'stress_tolerances': sorted(df['Stress Tolerance'].dropna().unique().tolist()),
-    'vegetable': ['Yes', 'No'],
     'usage': USAGE_OPTIONS,
 }
 
@@ -597,16 +596,31 @@ def get_clusters():
         # Fallback to all
         cols = morph_cols + stress_cols + usage_cols
 
+    if filtered.empty:
+        return jsonify({'points': []})
+
     # One-hot encode categorical features
     enc = OneHotEncoder(handle_unknown='ignore', sparse=False)
     X = enc.fit_transform(filtered[cols].astype(str))
 
-    # Dimensionality reduction
-    pca_local = PCA(n_components=2, random_state=42)
-    pts = pca_local.fit_transform(X)
+    # Dimensionality reduction with safety for tiny datasets
+    num_samples = X.shape[0]
+    num_features = X.shape[1]
+    n_components = min(2, num_samples, num_features) if num_features > 0 else 0
+    if n_components >= 1:
+        pca_local = PCA(n_components=n_components, random_state=42)
+        pts_reduced = pca_local.fit_transform(X)
+        # Pad to 2 dimensions if needed
+        if n_components == 1:
+            pts = np.hstack([pts_reduced, np.zeros((num_samples, 1))])
+        else:
+            pts = pts_reduced
+    else:
+        pts = np.zeros((num_samples, 2))
 
     # Clustering
-    kmeans_local = KMeans(n_clusters=min(k, max(1, len(filtered))), random_state=42)
+    n_clusters = max(1, min(k, num_samples))
+    kmeans_local = KMeans(n_clusters=n_clusters, random_state=42)
     labels = kmeans_local.fit_predict(X)
 
     # Build response with common names
@@ -620,6 +634,61 @@ def get_clusters():
             'Cluster': int(lab),
         })
     return jsonify({'points': records})
+
+
+@app.route('/api/parallel-categories')
+def parallel_categories():
+    filtered = apply_filters(df)
+    if filtered.empty:
+        return jsonify({'dimensions': [], 'cluster_labels': []})
+
+    # Determine a primary usage label per plant
+    usage_priority = [
+        ('Vegetable', 'VegetableFlag'),
+        ('Fruit', 'FruitFlag'),
+        ('Medicinal Plant', 'MedicinalFlag'),
+        ('Commercial Crop', 'CommercialFlag'),
+        ('Ornamental Plant', 'OrnamentalFlag'),
+        ('Fodder Crop', 'FodderFlag'),
+    ]
+
+    def primary_usage(row: pd.Series) -> str:
+        for label, col in usage_priority:
+            if row.get(col, 'No') == 'Yes':
+                return label
+        return 'None'
+
+    # Build dimensions arrays (same record order)
+    gf_vals = filtered['Stem / Growth Form'].astype(str).tolist()
+    rt_vals = filtered['Root Type'].astype(str).tolist()
+    rd_vals = filtered['Root Depth'].astype(str).tolist()
+    st_vals = filtered['Stress Tolerance'].astype(str).tolist()
+    usage_vals = [primary_usage(row) for _, row in filtered.iterrows()]
+
+    # Clusters for coloring (combined: morphology + stress)
+    cols = [
+        'Root Type', 'Root Depth', 'Stem / Growth Form', 'Leaf Traits',
+        'Reproductive Traits', 'Stress Tolerance', 'Special Adaptations',
+        'VegetableFlag', 'FruitFlag', 'MedicinalFlag', 'CommercialFlag',
+        'OrnamentalFlag', 'FodderFlag',
+    ]
+    enc = OneHotEncoder(handle_unknown='ignore', sparse=False)
+    X = enc.fit_transform(filtered[cols].astype(str))
+    num_samples = X.shape[0]
+    n_clusters = max(1, min(5, num_samples))
+    kmeans_local = KMeans(n_clusters=n_clusters, random_state=42)
+    cluster_labels = kmeans_local.fit_predict(X).tolist()
+
+    dimensions = [
+        {'label': 'Growth Form', 'values': gf_vals},
+        {'label': 'Root Type', 'values': rt_vals},
+        {'label': 'Root Depth', 'values': rd_vals},
+        {'label': 'Stress Tolerance', 'values': st_vals},
+        {'label': 'Usage', 'values': usage_vals},
+        {'label': 'Cluster', 'values': [f'C{c}' for c in cluster_labels]},
+    ]
+
+    return jsonify({'dimensions': dimensions, 'cluster_labels': cluster_labels})
 
 
 if __name__ == '__main__':
