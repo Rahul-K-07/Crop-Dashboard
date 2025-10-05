@@ -335,13 +335,11 @@ def get_sunburst():
         values.append(int(row['count']))
 
     # Level 3: Plants under each (GF, Leaf Trait) using common names for readability
-    # Only include when filters are active to avoid overwhelming the chart
-    if filters_active:
-        for _, row in filtered.iterrows():
-            parent_label = str(row['Leaf Traits'])
-            labels.append(str(row['Common Name']))
-            parents.append(parent_label)
-            values.append(1)
+    for _, row in filtered.iterrows():
+        parent_label = str(row['Leaf Traits'])
+        labels.append(str(row['Common Name']))
+        parents.append(parent_label)
+        values.append(1)
 
     return jsonify({'labels': labels, 'parents': parents, 'values': values, 'filters_active': filters_active})
 

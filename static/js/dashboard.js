@@ -279,6 +279,9 @@ async function loadClusterChart() {
         clusters[p.Cluster].text.push(p.Label || p.Plant);
     });
     const traces = Object.values(clusters).map(c => ({...c, mode: 'markers', type: 'scatter'}));
+    Plotly.newPlot('clusterChart', traces, {title: 'PCA Clusters (auto)'});
+
+    // No summary rendering in original UI
     const title = data.meta && data.meta.basis_title ? `PCA Clusters — ${data.meta.basis_title} (k=${data.meta.k})` : 'PCA Clusters';
     Plotly.newPlot('clusterChart', traces, {title});
 
