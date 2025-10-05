@@ -195,7 +195,8 @@ async function loadSunburstChart(selectedPlants, filters) {
         values: data.values,
         branchvalues: 'total'
     }];
-    Plotly.newPlot('sunburstChart', trace, {title: 'Growth → Leaf Traits → Plants'});
+    const title = (data.filters_active ? 'Growth → Leaf Traits → Plants' : 'Growth → Leaf Traits');
+    Plotly.newPlot('sunburstChart', trace, {title});
 }
 
 async function loadStressBarChart(selectedPlants, filters) {
@@ -264,8 +265,10 @@ async function loadClusterChart() {
     const params = buildQuery(dashboard.selectedPlants, dashboard.filters);
     const res = await fetch(`/api/clusters?cluster_mode=combined&k=auto&${params.toString()}`);
     const data = await res.json();
+    const summaryEl = document.getElementById('clusterSummary');
     if (!data.points || !data.points.length) {
         document.getElementById('clusterChart').innerHTML = '<em>No clustering results for current filters.</em>';
+        if (summaryEl) summaryEl.innerHTML = '';
         return;
     }
     const clusters = {};
@@ -276,7 +279,19 @@ async function loadClusterChart() {
         clusters[p.Cluster].text.push(p.Label || p.Plant);
     });
     const traces = Object.values(clusters).map(c => ({...c, mode: 'markers', type: 'scatter'}));
-    Plotly.newPlot('clusterChart', traces, {title: 'PCA Clusters (auto)'});
+    const title = data.meta && data.meta.basis_title ? `PCA Clusters — ${data.meta.basis_title} (k=${data.meta.k})` : 'PCA Clusters';
+    Plotly.newPlot('clusterChart', traces, {title});
+
+    if (summaryEl && data.summaries) {
+        const items = Object.keys(data.summaries)
+            .sort((a,b) => Number(a) - Number(b))
+            .map(k => {
+                const s = data.summaries[k];
+                return `<div class="summary-item"><strong>C${k}</strong> — n=${s.size}; ` +
+                    `GF: ${s['Growth Form']}; RT: ${s['Root Type']}; ST: ${s['Stress Tolerance']}; Usage: ${s['Primary Usage']}</div>`;
+            }).join('');
+        summaryEl.innerHTML = `<div class="summary-title">Cluster summaries</div>${items}`;
+    }
 }
 
 async function loadParallelCats() {
@@ -294,7 +309,8 @@ async function loadParallelCats() {
         arrangement: 'perpendicular',
         bundlecolors: true
     }];
-    Plotly.newPlot('parallelCatsChart', trace, {title: 'Traits Parallel Categories'});
+    const title = data.title || 'Traits Parallel Categories';
+    Plotly.newPlot('parallelCatsChart', trace, {title});
 }
 
 async function loadVegetableChart() {
@@ -475,6 +491,20 @@ async function updateFilteredList() {
         const res = await fetch('/api/filtered-plants?' + params.toString());
         const data = await res.json();
         const list = document.getElementById('filteredList');
+        const anyFilters = (
+            (dashboard.selectedPlants && dashboard.selectedPlants.length > 0) ||
+            (dashboard.filters && (
+                (dashboard.filters.root_system || []).length ||
+                (dashboard.filters.root_depth || []).length ||
+                (dashboard.filters.growth_form || []).length ||
+                (dashboard.filters.stress_tolerance || []).length ||
+                (dashboard.filters.usage || []).length
+            ))
+        );
+        if (!anyFilters) {
+            list.innerHTML = '<em>Select filters to see matching plants.</em>';
+            return;
+        }
         if (!data.names || !data.names.length) {
             list.innerHTML = '<em>No plants match current filters.</em>';
             return;
