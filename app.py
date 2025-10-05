@@ -574,7 +574,7 @@ def get_vegetables():
 def get_clusters():
     filtered = apply_filters(df)
     mode = request.args.get('cluster_mode', 'combined').lower()
-    k = int(request.args.get('k', '5'))
+    k_arg = request.args.get('k', '').strip().lower()
 
     morph_cols = ['Root Type', 'Root Depth', 'Stem / Growth Form', 'Leaf Traits', 'Reproductive Traits']
     stress_cols = ['Stress Tolerance', 'Special Adaptations']
@@ -618,8 +618,21 @@ def get_clusters():
     else:
         pts = np.zeros((num_samples, 2))
 
+    # Resolve clusters 'k' automatically if not provided or set to 'auto'
+    try:
+        k_val = int(k_arg) if k_arg and k_arg != 'auto' else 0
+    except ValueError:
+        k_val = 0
+    if k_val <= 0:
+        # Heuristic: sqrt(n), bounded [2, 8], but allow 1 when n == 1
+        k_val = int(math.sqrt(num_samples)) if num_samples > 0 else 1
+        if num_samples == 1:
+            k_val = 1
+        else:
+            k_val = max(2, min(8, k_val))
+
     # Clustering
-    n_clusters = max(1, min(k, num_samples))
+    n_clusters = max(1, min(k_val, num_samples))
     kmeans_local = KMeans(n_clusters=n_clusters, random_state=42)
     labels = kmeans_local.fit_predict(X)
 
@@ -634,6 +647,31 @@ def get_clusters():
             'Cluster': int(lab),
         })
     return jsonify({'points': records})
+
+
+@app.route('/api/usage')
+def get_usage():
+    filtered = apply_filters(df)
+    usage_map = [
+        ('Vegetable', 'VegetableFlag'),
+        ('Fruit', 'FruitFlag'),
+        ('Medicinal Plant', 'MedicinalFlag'),
+        ('Commercial Crop', 'CommercialFlag'),
+        ('Ornamental Plant', 'OrnamentalFlag'),
+        ('Fodder Crop', 'FodderFlag'),
+    ]
+    counts = {label: int((filtered[col] == 'Yes').sum()) for label, col in usage_map}
+    # Remove zeroes to declutter the pie
+    counts = {k: v for k, v in counts.items() if v > 0}
+    return jsonify({'usage_counts': counts, 'total': int(len(filtered))})
+
+
+@app.route('/api/filtered-plants')
+def get_filtered_plants():
+    filtered = apply_filters(df)
+    names = filtered['Common Name'].astype(str).tolist()
+    ids = filtered['Plant'].astype(str).tolist()
+    return jsonify({'count': len(names), 'ids': ids, 'names': names})
 
 
 @app.route('/api/parallel-categories')
