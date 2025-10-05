@@ -19,15 +19,21 @@ def _normalize_columns(frame: pd.DataFrame) -> pd.DataFrame:
     # Standardize column names (strip and collapse spaces)
     frame.columns = [c.strip() for c in frame.columns]
 
-    # Ensure expected columns exist
+    # Ensure expected columns exist (new dataset splits Root and Type and includes usage flags)
     expected = [
         'Plant',
-        'Root Type',
+        'Root',
+        'Type',
         'Stem / Growth Form',
         'Leaf Traits',
         'Reproductive Traits',
         'Stress Tolerance',
         'Special Adaptations',
+        'Vegetable',
+        'Fruit',
+        'Medicinal Plant',
+        'Commercial Crop',
+        'Ornamental Plant',
     ]
     for col in expected:
         if col not in frame.columns:
@@ -66,10 +72,35 @@ def _normalize_columns(frame: pd.DataFrame) -> pd.DataFrame:
 
     frame['VegetableFlag'] = frame[veg_source_col].apply(_to_yes_no)
 
+    # Build Usage tags from boolean columns when present
+    def _to_bool(val: str) -> bool:
+        v = (val or '').strip().lower()
+        return v in {'1', 'y', 'yes', 'true'}
+
+    usage_tags = []
+    for _, row in frame.iterrows():
+        tags = []
+        try:
+            if _to_bool(str(row.get('Vegetable', '0'))):
+                tags.append('Vegetable')
+            if _to_bool(str(row.get('Fruit', '0'))):
+                tags.append('Fruits')
+            if _to_bool(str(row.get('Medicinal Plant', '0'))):
+                tags.append('Medicinal')
+            if _to_bool(str(row.get('Commercial Crop', '0'))):
+                tags.append('Commercial')
+            if _to_bool(str(row.get('Ornamental Plant', '0'))):
+                tags.append('Ornamental')
+        except Exception:
+            tags = []
+        usage_tags.append(tags)
+    frame['UsageTags'] = usage_tags
+    frame['Usage'] = frame['UsageTags'].apply(lambda tags: '; '.join(tags) if tags else 'Unknown')
+
     return frame
 
 
-df = pd.read_csv('combined_traits_table.csv').fillna('Unknown')
+df = pd.read_csv('Crop_dashboard Kerala.csv').fillna('Unknown')
 df = _normalize_columns(df)
 
 
@@ -105,9 +136,13 @@ def apply_filters(source: pd.DataFrame) -> pd.DataFrame:
     if selected_plants:
         filtered = filtered[filtered['Plant'].isin(selected_plants)]
 
-    root_types = _parse_list_arg('root_type')
-    if root_types:
-        filtered = filtered[filtered['Root Type'].isin(root_types)]
+    roots = _parse_list_arg('root')
+    if roots:
+        filtered = filtered[filtered['Root'].isin(roots)]
+
+    types = _parse_list_arg('type')
+    if types:
+        filtered = filtered[filtered['Type'].isin(types)]
 
     growth_forms = _parse_list_arg('growth_form')
     if growth_forms:
@@ -121,15 +156,24 @@ def apply_filters(source: pd.DataFrame) -> pd.DataFrame:
     if vegetables:
         filtered = filtered[filtered['VegetableFlag'].isin(vegetables)]
 
+    usage_vals = _parse_list_arg('usage')
+    if usage_vals:
+        wanted = {u.strip().lower() for u in usage_vals}
+        def any_usage(tags):
+            return any((t.lower() in wanted) for t in (tags or []))
+        filtered = filtered[filtered['UsageTags'].apply(any_usage)]
+
     return filtered
 
 
 # Precompute filter options and plant list
 FILTER_OPTIONS = {
-    'root_types': sorted(df['Root Type'].dropna().unique().tolist()),
+    'roots': sorted(df['Root'].dropna().unique().tolist()),
+    'types': sorted(df['Type'].dropna().unique().tolist()),
     'growth_forms': sorted(df['Stem / Growth Form'].dropna().unique().tolist()),
     'stress_tolerances': sorted(df['Stress Tolerance'].dropna().unique().tolist()),
     'vegetable': ['Yes', 'No'],
+    'usage': ['Vegetable', 'Fruits', 'Commercial', 'Medicinal', 'Ornamental'],
 }
 
 PLANT_LIST = [
@@ -156,7 +200,8 @@ for plant in PLANT_LIST:
 
 # Encoders and clustering
 TRAIT_COLS = [
-    'Root Type',
+    'Root',
+    'Type',
     'Stem / Growth Form',
     'Leaf Traits',
     'Reproductive Traits',
@@ -213,7 +258,7 @@ def plants_by_category():
 @app.route('/api/traits')
 def get_traits():
     filtered = apply_filters(df)
-    root_counts = filtered['Root Type'].value_counts().to_dict()
+    root_counts = filtered['Root'].value_counts().to_dict()
     return jsonify({'root_counts': root_counts})
 
 
@@ -373,7 +418,8 @@ def compare_plants():
         return jsonify({'plants': [], 'traits': [], 'values': {}})
     rows = df[df['Plant'].isin(selected)]
     traits = [
-        'Root Type',
+        'Root',
+        'Type',
         'Stem / Growth Form',
         'Leaf Traits',
         'Reproductive Traits',
@@ -464,7 +510,8 @@ def trait_network():
         plant = row['Plant']
         p_idx = add_node(f'p::{plant}', plant, 'plant')
         traits = [
-            ('rt::' + row['Root Type'], row['Root Type'], 'Root Type'),
+            ('rt::' + row['Root'], row['Root'], 'Root'),
+            ('ty::' + row['Type'], row['Type'], 'Type'),
             ('gf::' + row['Stem / Growth Form'], row['Stem / Growth Form'], 'Growth Form'),
             ('st::' + row['Stress Tolerance'], row['Stress Tolerance'], 'Stress Tolerance'),
         ]
