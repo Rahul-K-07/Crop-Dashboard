@@ -488,7 +488,10 @@ def radar_data():
         if prow.empty:
             continue
         values = [float(prow.iloc[0][c]) / float(maxima[c]) for c in TRAIT_COLS]
-        series.append({'name': plant, 'values': values})
+        # Use common name for display
+        common = df.loc[df['Plant'] == plant, 'Common Name']
+        label = common.iloc[0] if not common.empty else plant
+        series.append({'name': str(label), 'values': values})
     return jsonify({'categories': categories, 'series': series})
 
 
