@@ -230,13 +230,7 @@ _encoded_input = df[TRAIT_COLS].astype(str)
 ENCODERS = {col: LabelEncoder().fit(_encoded_input[col]) for col in TRAIT_COLS}
 ENCODED = pd.DataFrame({col: ENCODERS[col].transform(_encoded_input[col]) for col in TRAIT_COLS})
 
-pca = PCA(n_components=2, random_state=42)
-pca_result = pca.fit_transform(ENCODED)
-kmeans = KMeans(n_clusters=5, random_state=42)
-kmeans.fit(ENCODED)
-
-df['PCA1'], df['PCA2'] = pca_result[:, 0], pca_result[:, 1]
-df['Cluster'] = kmeans.labels_
+# Removed global PCA/KMeans precomputation to avoid duplicate clustering
 
 
 # ------------------------------
@@ -756,7 +750,7 @@ def get_filtered_plants():
 def parallel_categories():
     filtered = apply_filters(df)
     if filtered.empty:
-        return jsonify({'dimensions': [], 'cluster_labels': [], 'title': 'No data'})
+        return jsonify({'dimensions': [], 'title': 'No data'})
 
     # Determine a primary usage label per plant
     usage_priority = [
@@ -781,19 +775,7 @@ def parallel_categories():
     st_vals = filtered['Stress Tolerance'].astype(str).tolist()
     usage_vals = [primary_usage(row) for _, row in filtered.iterrows()]
 
-    # Clusters for coloring (combined: morphology + stress)
-    cols = [
-        'Root Type', 'Root Depth', 'Stem / Growth Form', 'Leaf Traits',
-        'Reproductive Traits', 'Stress Tolerance', 'Special Adaptations',
-        'VegetableFlag', 'FruitFlag', 'MedicinalFlag', 'CommercialFlag',
-        'OrnamentalFlag', 'FodderFlag',
-    ]
-    enc = OneHotEncoder(handle_unknown='ignore', sparse=False)
-    X = enc.fit_transform(filtered[cols].astype(str))
-    num_samples = X.shape[0]
-    n_clusters = max(1, min(5, num_samples))
-    kmeans_local = KMeans(n_clusters=n_clusters, random_state=42)
-    cluster_labels = kmeans_local.fit_predict(X).tolist()
+    # Clusters removed: use raw categories only
 
     dimensions = [
         {'label': 'Growth Form', 'values': gf_vals},
@@ -801,11 +783,10 @@ def parallel_categories():
         {'label': 'Root Depth', 'values': rd_vals},
         {'label': 'Stress Tolerance', 'values': st_vals},
         {'label': 'Usage', 'values': usage_vals},
-        {'label': 'Cluster', 'values': [f'C{c}' for c in cluster_labels]},
     ]
 
-    title = 'Parallel Categories: Growth, Root, Stress, Usage (colored by clusters)'
-    return jsonify({'dimensions': dimensions, 'cluster_labels': cluster_labels, 'title': title, 'basis': 'combined'})
+    title = 'Parallel Categories: Growth, Root, Stress, Usage'
+    return jsonify({'dimensions': dimensions, 'title': title, 'basis': 'combined'})
 
 
 if __name__ == '__main__':
