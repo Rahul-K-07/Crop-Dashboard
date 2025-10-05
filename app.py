@@ -147,6 +147,10 @@ def apply_filters(source: pd.DataFrame) -> pd.DataFrame:
     if usage:
         mask = pd.Series(False, index=filtered.index)
         usage_map = {
+            # New labels
+            'Edible (Vegetable)': 'VegetableFlag',
+            'Edible (Fruit)': 'FruitFlag',
+            # Backward compatibility
             'Vegetable': 'VegetableFlag',
             'Fruit': 'FruitFlag',
             'Medicinal Plant': 'MedicinalFlag',
@@ -164,7 +168,7 @@ def apply_filters(source: pd.DataFrame) -> pd.DataFrame:
 
 
 # Precompute filter options and plant list
-USAGE_OPTIONS = ['Vegetable', 'Fruit', 'Medicinal Plant', 'Commercial Crop', 'Ornamental Plant', 'Fodder Crop']
+USAGE_OPTIONS = ['Edible (Vegetable)', 'Edible (Fruit)', 'Medicinal Plant', 'Commercial Crop', 'Ornamental Plant', 'Fodder Crop']
 FILTER_OPTIONS = {
     'root_systems': sorted(df['Root Type'].dropna().unique().tolist()),
     'root_depths': sorted(df['Root Depth'].dropna().unique().tolist()),
@@ -184,8 +188,8 @@ PLANT_LIST = [
         'vegetable': row['VegetableFlag'],
         'usage': [
             u for u, col in (
-                ('Vegetable', 'VegetableFlag'),
-                ('Fruit', 'FruitFlag'),
+                ('Edible (Vegetable)', 'VegetableFlag'),
+                ('Edible (Fruit)', 'FruitFlag'),
                 ('Medicinal Plant', 'MedicinalFlag'),
                 ('Commercial Crop', 'CommercialFlag'),
                 ('Ornamental Plant', 'OrnamentalFlag'),
@@ -515,53 +519,7 @@ def similar_plants():
     return jsonify({'similar': similar})
 
 
-@app.route('/api/network')
-def trait_network():
-    filtered = apply_filters(df)
-    # Build bipartite graph: plants <-> traits (root type, growth form, stress, key adaptations)
-    nodes = []
-    node_index = {}
-
-    def add_node(node_id: str, label: str, group: str):
-        if node_id in node_index:
-            return node_index[node_id]
-        idx = len(nodes)
-        node_index[node_id] = idx
-        nodes.append({'id': node_id, 'label': label, 'group': group})
-        return idx
-
-    links = []
-
-    # Collect top adaptation tokens to limit size
-    def split_adaptations(text: str) -> list[str]:
-        parts = re.split(r'[;,/]\s*', str(text))
-        return [p.strip() for p in parts if p and p.lower() != 'unknown']
-
-    adapt_counter = Counter(
-        token for val in filtered['Special Adaptations'] for token in split_adaptations(val)
-    )
-    top_adapts = {t for t, _ in adapt_counter.most_common(30)}
-
-    for _, row in filtered.iterrows():
-        plant = row['Plant']
-        common = row['Common Name']
-        p_idx = add_node(f'p::{plant}', str(common), 'plant')
-        traits = [
-            ('rt::' + row['Root Type'], row['Root Type'], 'Root Type'),
-            ('rd::' + row['Root Depth'], row['Root Depth'], 'Root Depth'),
-            ('gf::' + row['Stem / Growth Form'], row['Stem / Growth Form'], 'Growth Form'),
-            ('st::' + row['Stress Tolerance'], row['Stress Tolerance'], 'Stress Tolerance'),
-        ]
-        for node_id, label, group in traits:
-            t_idx = add_node(node_id, label, group)
-            links.append({'source': p_idx, 'target': t_idx})
-
-        for a in split_adaptations(row['Special Adaptations']):
-            if a in top_adapts:
-                a_idx = add_node('ad::' + a, a, 'Adaptation')
-                links.append({'source': p_idx, 'target': a_idx})
-
-    return jsonify({'nodes': nodes, 'links': links})
+# Network graph endpoint removed as per request
 
 
 @app.route('/api/vegetables')

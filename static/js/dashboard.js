@@ -34,6 +34,11 @@ class DashboardState {
             loadComparisonTable(this.selectedPlants);
             loadRadarChart(this.selectedPlants);
         }
+        // Keep advanced charts responsive to selection changes
+        if (document.getElementById('advancedAnalytics').style.display !== 'none') {
+            loadClusterChart();
+            loadSimilarityChart();
+        }
     }
 }
 
@@ -67,7 +72,7 @@ class UIManager {
             // Delay rendering until after layout is updated
             setTimeout(() => {
                 loadClusterChart();
-                loadNetworkChart();
+                loadSimilarityChart();
                 loadVegetableChart();
             }, 50);
         });
@@ -279,62 +284,45 @@ async function loadClusterChart() {
     Plotly.newPlot('clusterChart', traces, {title: `PCA Clusters (${mode})`});
 }
 
-async function loadNetworkChart() {
-    const res = await fetch('/api/network');
-    const data = await res.json();
-    if (!data || !data.nodes || !data.nodes.length) {
-        document.getElementById('networkChart').innerHTML = '<em>No network data.</em>';
+// removed network chart as requested
+
+// Similarity heatmap for selected plants (informative, visually appealing)
+async function loadSimilarityChart() {
+    const params = buildQuery(dashboard.selectedPlants, dashboard.filters);
+    // Require at least 2 plants selected
+    if (!dashboard.selectedPlants || dashboard.selectedPlants.length < 2) {
+        document.getElementById('similarityChart').innerHTML = '<em>Select 2+ plants to view similarity heatmap.</em>';
         return;
     }
-    // Compute simple layered layout by group
-    const groups = [...new Set(data.nodes.map(n => n.group))];
-    const groupX = {};
-    groups.forEach((g, i) => { groupX[g] = i / (Math.max(1, groups.length - 1) || 1); });
-    const nodesByGroup = {};
-    data.nodes.forEach((n, idx) => {
-        nodesByGroup[n.group] = nodesByGroup[n.group] || [];
-        nodesByGroup[n.group].push({ ...n, _idx: idx });
-    });
-    const pos = {};
-    Object.entries(nodesByGroup).forEach(([g, arr]) => {
-        const step = arr.length > 1 ? 1 / (arr.length - 1) : 0.5;
-        arr.forEach((n, j) => {
-            const x = groupX[g];
-            const y = arr.length > 1 ? j * step : 0.5;
-            pos[n._idx] = { x, y };
-        });
-    });
-    // Build edge trace
-    const edgeX = [];
-    const edgeY = [];
-    (data.links || []).forEach(l => {
-        const s = pos[l.source];
-        const t = pos[l.target];
-        if (!s || !t) return;
-        edgeX.push(s.x, t.x, null);
-        edgeY.push(s.y, t.y, null);
-    });
-    const edgeTrace = {
-        x: edgeX, y: edgeY, mode: 'lines', type: 'scatter',
-        line: { width: 1, color: '#aaa' }, hoverinfo: 'none', showlegend: false
-    };
-    // Build node trace
-    const nodeX = data.nodes.map((_, i) => pos[i].x);
-    const nodeY = data.nodes.map((_, i) => pos[i].y);
-    const labels = data.nodes.map(n => n.label);
-    const colors = data.nodes.map(n => groups.indexOf(n.group));
-    const nodeTrace = {
-        x: nodeX, y: nodeY, mode: 'markers+text', type: 'scatter',
-        text: labels, textposition: 'top center',
-        marker: { size: 8, color: colors, colorscale: 'Viridis' },
-        hovertext: labels, hoverinfo: 'text', showlegend: false
-    };
-    Plotly.newPlot('networkChart', [edgeTrace, nodeTrace], {
-        title: 'Trait Network (Plants ↔ Traits)',
-        xaxis: { showgrid: false, zeroline: false, visible: false },
-        yaxis: { showgrid: false, zeroline: false, visible: false },
-        margin: { l: 10, r: 10, t: 40, b: 10 }
-    });
+    const res = await fetch('/api/radar?' + params.toString());
+    const data = await res.json();
+    if (!data.series || !data.series.length) {
+        document.getElementById('similarityChart').innerHTML = '<em>No data available for selection.</em>';
+        return;
+    }
+    // Build normalized vectors per plant (same order as returned)
+    const names = data.series.map(s => s.name);
+    const vecs = data.series.map(s => s.values);
+    // Cosine similarity matrix
+    function dot(a, b) { return a.reduce((acc, v, i) => acc + v * b[i], 0); }
+    function norm(a) { return Math.sqrt(dot(a, a)); }
+    const sim = names.map((_, i) => names.map((_, j) => {
+        const d = dot(vecs[i], vecs[j]);
+        const n = norm(vecs[i]) * norm(vecs[j]) || 1;
+        return d / n;
+    }));
+    const trace = [{
+        z: sim,
+        x: names,
+        y: names,
+        type: 'heatmap',
+        colorscale: 'YlGnBu',
+        reversescale: false,
+        zmin: 0,
+        zmax: 1,
+        hoverongaps: false
+    }];
+    Plotly.newPlot('similarityChart', trace, {title: 'Selected Plants Similarity (cosine on encoded traits)'});
 }
 
 async function loadVegetableChart() {
