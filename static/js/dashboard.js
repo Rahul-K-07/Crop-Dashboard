@@ -65,9 +65,7 @@ class UIManager {
             wrap.style.display = 'block';
             // Delay rendering until after layout is updated
             setTimeout(() => {
-                loadClusterChart();
                 loadParallelCats();
-                loadVegetableChart();
             }, 50);
         });
     }
@@ -262,9 +260,9 @@ async function loadRadarChart(selectedPlants) {
 }
 
 async function loadClusterChart() {
-    const mode = document.getElementById('clusterMode').value;
-    const k = document.getElementById('clusterK').value || 5;
-    const res = await fetch(`/api/clusters?cluster_mode=${encodeURIComponent(mode)}&k=${encodeURIComponent(k)}`);
+    // Always use combined mode and auto k; use current filters
+    const params = buildQuery(dashboard.selectedPlants, dashboard.filters);
+    const res = await fetch(`/api/clusters?cluster_mode=combined&k=auto&${params.toString()}`);
     const data = await res.json();
     if (!data.points || !data.points.length) {
         document.getElementById('clusterChart').innerHTML = '<em>No clustering results for current filters.</em>';
@@ -278,7 +276,7 @@ async function loadClusterChart() {
         clusters[p.Cluster].text.push(p.Label || p.Plant);
     });
     const traces = Object.values(clusters).map(c => ({...c, mode: 'markers', type: 'scatter'}));
-    Plotly.newPlot('clusterChart', traces, {title: `PCA Clusters (${mode})`});
+    Plotly.newPlot('clusterChart', traces, {title: 'PCA Clusters (auto)'});
 }
 
 async function loadParallelCats() {
@@ -300,13 +298,14 @@ async function loadParallelCats() {
 }
 
 async function loadVegetableChart() {
-    const res = await fetch('/api/vegetables');
+    const res = await fetch('/api/usage');
     const data = await res.json();
-    Plotly.newPlot('vegetableChart', [{
+    const counts = data.usage_counts || {};
+    Plotly.newPlot('usageChart', [{
         type: 'pie',
-        labels: Object.keys(data.veg_counts),
-        values: Object.values(data.veg_counts)
-    }], {title: 'Vegetable vs Non-Vegetable'});
+        labels: Object.keys(counts),
+        values: Object.values(counts)
+    }], {title: 'Usage Distribution'});
 }
 
 // Optional charts toggles
@@ -402,7 +401,7 @@ dashboard.updateSelectedPlants = (plants) => {
 
 // Responsive: resize charts on window resize
 window.addEventListener('resize', () => {
-    ['rootTypeChart','sunburstChart','stressBarChart','sankeyChart','radarChart','clusterChart','parallelCatsChart','vegetableChart','wordCloudChart']
+    ['rootTypeChart','sunburstChart','stressBarChart','sankeyChart','radarChart','clusterChart','parallelCatsChart','usageChart','wordCloudChart']
 .forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -446,10 +445,12 @@ class FiltersManager {
             // If advanced is open, refresh advanced visuals too
             const wrap = document.getElementById('advancedAnalytics');
             if (wrap && wrap.style.display !== 'none') {
-                loadClusterChart();
                 loadParallelCats();
-                loadVegetableChart();
             }
+            // Always update clusters and usage pie and filtered names
+            loadClusterChart();
+            loadVegetableChart();
+            updateFilteredList();
         });
     }
 }
@@ -461,8 +462,25 @@ document.addEventListener('DOMContentLoaded', () => {
     new PlantSelector();
     new FiltersManager();
     dashboard.refreshAllCharts();
-    // Re-render clusters on control change
-    document.getElementById('clusterMode').addEventListener('change', loadClusterChart);
-    document.getElementById('clusterK').addEventListener('change', loadClusterChart);
+    // Initial renders for clusters, usage pie and filtered list
+    loadClusterChart();
+    loadVegetableChart();
+    updateFilteredList();
     setTimeout(() => LoadingManager.hide(), 500); // Ensure loading overlay is visible briefly
 });
+
+async function updateFilteredList() {
+    try {
+        const params = buildQuery(dashboard.selectedPlants, dashboard.filters);
+        const res = await fetch('/api/filtered-plants?' + params.toString());
+        const data = await res.json();
+        const list = document.getElementById('filteredList');
+        if (!data.names || !data.names.length) {
+            list.innerHTML = '<em>No plants match current filters.</em>';
+            return;
+        }
+        list.innerHTML = data.names.map(n => `<div class="list-item">${n}</div>`).join('');
+    } catch (e) {
+        console.error('Failed to update filtered list', e);
+    }
+}

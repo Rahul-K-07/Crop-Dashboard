@@ -42,6 +42,11 @@
             <hr>
             <label for="compareSelect">Compare Plants</label>
             <select id="compareSelect" multiple></select>
+            <hr>
+            <div class="filtered-list">
+                <h3>Filtered Plants</h3>
+                <div id="filteredList" class="list"></div>
+            </div>
         </div>
 
         <div class="content">
@@ -56,6 +61,8 @@
                 <div id="sunburstChart" class="chart"></div>
                 <button class="toggle-btn" data-toggle="wordcloud">Show Word Cloud</button>
                 <div id="wordCloudChart" class="chart" style="display:none"></div>
+                <div id="clusterChart" class="chart"></div>
+                <div id="usageChart" class="chart"></div>
             </div>
 
             <div class="tab-panel" id="stressTab">
@@ -73,22 +80,7 @@
 
             <button id="showAdvanced">Advanced Analytics</button>
             <div id="advancedAnalytics" style="display:none;">
-                <div class="controls">
-                    <label for="clusterMode">Cluster Mode</label>
-                    <select id="clusterMode">
-                        <option value="combined">Combined (Morphology + Stress)</option>
-                        <option value="morphology">Morphology Only</option>
-                        <option value="stress">Stress/Adaptations Only</option>
-                        <option value="usage">Usage Only</option>
-                        <option value="morphology+usage">Morphology + Usage</option>
-                        <option value="stress+usage">Stress + Usage</option>
-                    </select>
-                    <label for="clusterK">#Clusters</label>
-                    <input id="clusterK" type="number" value="5" min="2" max="15" step="1" />
-                </div>
-                <div id="clusterChart" class="chart"></div>
                 <div id="parallelCatsChart" class="chart"></div>
-                <div id="vegetableChart" class="chart"></div>
             </div>
         </div>
     </div>
