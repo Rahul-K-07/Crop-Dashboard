@@ -3,10 +3,12 @@ class DashboardState {
     constructor() {
         this.selectedPlants = [];
         this.filters = {
-            root_type: [],
+            root_system: [],
+            root_depth: [],
             growth_form: [],
             stress_tolerance: [],
-            vegetable: []
+            vegetable: [],
+            usage: []
         };
         this.currentTab = 'explore';
     }
@@ -87,16 +89,18 @@ class UIManager {
                 const res = await fetch('/api/plant-search?q=' + encodeURIComponent(q));
                 const items = await res.json();
                 if (items.length) {
-                    const name = items[0].name;
+                    const item = items[0];
+                    const value = item.id || item.scientific || item.name;
+                    const label = item.text || item.name || value;
                     const compare = $('#compareSelect');
                     // Ensure option exists and select it
-                    if (!compare.find(`option[value="${name}"]`).length) {
-                        const newOption = new Option(name, name, true, true);
+                    if (!compare.find(`option[value="${value}"]`).length) {
+                        const newOption = new Option(label, value, true, true);
                         compare.append(newOption).trigger('change');
                     } else {
                         const values = compare.val() || [];
-                        if (!values.includes(name)) {
-                            compare.val(values.concat(name)).trigger('change');
+                        if (!values.includes(value)) {
+                            compare.val(values.concat(value)).trigger('change');
                         }
                     }
                     document.getElementById('landingPage').style.display = 'none';
@@ -117,12 +121,15 @@ class PlantSelector {
     async init() {
         const res = await fetch('/api/plant-list');
         this.plants = await res.json();
+        // Build global index: Plant ID -> Common Name
+        window.PLANT_INDEX = {};
+        (this.plants || []).forEach(p => { window.PLANT_INDEX[p.id] = p.text; });
         // Populate compare select with Select2
         const compare = $('#compareSelect');
         compare.select2({
             placeholder: 'Select plants to compare',
             width: '100%',
-            data: this.plants.map(p => ({ id: p.name, text: p.name }))
+            data: this.plants.map(p => ({ id: p.id, text: p.text }))
         });
         compare.on('change', (e) => {
             const values = compare.val() || [];
@@ -158,10 +165,12 @@ class LoadingManager {
 function buildQuery(selectedPlants, filters) {
     const params = new URLSearchParams();
     (selectedPlants || []).forEach(p => params.append('plants[]', p));
-    (filters.root_type || []).forEach(v => params.append('root_type[]', v));
+    (filters.root_system || []).forEach(v => params.append('root_system[]', v));
+    (filters.root_depth || []).forEach(v => params.append('root_depth[]', v));
     (filters.growth_form || []).forEach(v => params.append('growth_form[]', v));
     (filters.stress_tolerance || []).forEach(v => params.append('stress_tolerance[]', v));
     (filters.vegetable || []).forEach(v => params.append('vegetable[]', v));
+    (filters.usage || []).forEach(v => params.append('usage[]', v));
     return params;
 }
 
@@ -170,11 +179,12 @@ async function loadRootTypeChart(selectedPlants, filters) {
     const params = buildQuery(selectedPlants, filters);
     const res = await fetch('/api/traits?' + params.toString());
     const data = await res.json();
+    const counts = data.root_system_counts || {};
     Plotly.newPlot('rootTypeChart', [{
-        x: Object.keys(data.root_counts),
-        y: Object.values(data.root_counts),
+        x: Object.keys(counts),
+        y: Object.values(counts),
         type: 'bar'
-    }], {title: 'Plants per Root Type'});
+    }], {title: 'Plants per Root System'});
     LoadingManager.hide();
 }
 
@@ -229,7 +239,8 @@ async function loadComparisonTable(selectedPlants) {
     const data = await res.json();
     const container = document.getElementById('comparisonTable');
     if (!data.plants.length) { container.innerHTML = '<em>Select plants to compare.</em>'; return; }
-    let html = '<table class="table"><thead><tr><th>Trait</th>' + data.plants.map(p => `<th>${p}</th>`).join('') + '</tr></thead><tbody>';
+    const headers = data.display_names && data.display_names.length ? data.display_names : data.plants;
+    let html = '<table class="table"><thead><tr><th>Trait</th>' + headers.map(p => `<th>${p}</th>`).join('') + '</tr></thead><tbody>';
     data.traits.forEach(tr => {
         html += `<tr><td>${tr}</td>` + data.plants.map(p => `<td>${data.values[p][tr] || ''}</td>`).join('') + '</tr>';
     });
@@ -253,29 +264,77 @@ async function loadRadarChart(selectedPlants) {
 }
 
 async function loadClusterChart() {
-    const res = await fetch('/api/clusters');
+    const mode = document.getElementById('clusterMode').value;
+    const k = document.getElementById('clusterK').value || 5;
+    const res = await fetch(`/api/clusters?cluster_mode=${encodeURIComponent(mode)}&k=${encodeURIComponent(k)}`);
     const data = await res.json();
     const clusters = {};
     data.points.forEach(p => {
         clusters[p.Cluster] = clusters[p.Cluster] || {x: [], y: [], text: [], name: `Cluster ${p.Cluster}`};
         clusters[p.Cluster].x.push(p.PCA1);
         clusters[p.Cluster].y.push(p.PCA2);
-        clusters[p.Cluster].text.push(p.Plant);
+        clusters[p.Cluster].text.push(p.Label || p.Plant);
     });
     const traces = Object.values(clusters).map(c => ({...c, mode: 'markers', type: 'scatter'}));
-    Plotly.newPlot('clusterChart', traces, {title: 'PCA Clusters'});
+    Plotly.newPlot('clusterChart', traces, {title: `PCA Clusters (${mode})`});
 }
 
 async function loadNetworkChart() {
     const res = await fetch('/api/network');
     const data = await res.json();
-    // Simple fallback: list counts by group
-    const counts = data.nodes.reduce((acc, n) => { acc[n.group] = (acc[n.group]||0)+1; return acc; }, {});
-    Plotly.newPlot('networkChart', [{
-        type: 'bar',
-        x: Object.keys(counts),
-        y: Object.values(counts)
-    }], {title: 'Network Node Counts (simple view)'});
+    if (!data || !data.nodes || !data.nodes.length) {
+        document.getElementById('networkChart').innerHTML = '<em>No network data.</em>';
+        return;
+    }
+    // Compute simple layered layout by group
+    const groups = [...new Set(data.nodes.map(n => n.group))];
+    const groupX = {};
+    groups.forEach((g, i) => { groupX[g] = i / (Math.max(1, groups.length - 1) || 1); });
+    const nodesByGroup = {};
+    data.nodes.forEach((n, idx) => {
+        nodesByGroup[n.group] = nodesByGroup[n.group] || [];
+        nodesByGroup[n.group].push({ ...n, _idx: idx });
+    });
+    const pos = {};
+    Object.entries(nodesByGroup).forEach(([g, arr]) => {
+        const step = arr.length > 1 ? 1 / (arr.length - 1) : 0.5;
+        arr.forEach((n, j) => {
+            const x = groupX[g];
+            const y = arr.length > 1 ? j * step : 0.5;
+            pos[n._idx] = { x, y };
+        });
+    });
+    // Build edge trace
+    const edgeX = [];
+    const edgeY = [];
+    (data.links || []).forEach(l => {
+        const s = pos[l.source];
+        const t = pos[l.target];
+        if (!s || !t) return;
+        edgeX.push(s.x, t.x, null);
+        edgeY.push(s.y, t.y, null);
+    });
+    const edgeTrace = {
+        x: edgeX, y: edgeY, mode: 'lines', type: 'scatter',
+        line: { width: 1, color: '#aaa' }, hoverinfo: 'none', showlegend: false
+    };
+    // Build node trace
+    const nodeX = data.nodes.map((_, i) => pos[i].x);
+    const nodeY = data.nodes.map((_, i) => pos[i].y);
+    const labels = data.nodes.map(n => n.label);
+    const colors = data.nodes.map(n => groups.indexOf(n.group));
+    const nodeTrace = {
+        x: nodeX, y: nodeY, mode: 'markers+text', type: 'scatter',
+        text: labels, textposition: 'top center',
+        marker: { size: 8, color: colors, colorscale: 'Viridis' },
+        hovertext: labels, hoverinfo: 'text', showlegend: false
+    };
+    Plotly.newPlot('networkChart', [edgeTrace, nodeTrace], {
+        title: 'Trait Network (Plants ↔ Traits)',
+        xaxis: { showgrid: false, zeroline: false, visible: false },
+        yaxis: { showgrid: false, zeroline: false, visible: false },
+        margin: { l: 10, r: 10, t: 40, b: 10 }
+    });
 }
 
 async function loadVegetableChart() {
@@ -349,23 +408,25 @@ async function updateSimilarSuggestions() {
     const last = dashboard.selectedPlants[dashboard.selectedPlants.length - 1];
     const res = await fetch('/api/similar?plant=' + encodeURIComponent(last));
     const data = await res.json();
-    container.innerHTML = '<strong>Similar to ' + last + ':</strong> ' +
-        data.similar.map(name => `<a href="#" data-plant="${name}" class="similar-item">${name}</a>`).join(', ');
+    const label = (window.PLANT_INDEX && window.PLANT_INDEX[last]) || last;
+    container.innerHTML = '<strong>Similar to ' + label + ':</strong> ' +
+        data.similar.map(it => `<a href="#" data-plant="${it.id}" class="similar-item">${it.text}</a>`).join(', ');
 }
 
 document.addEventListener('click', (e) => {
     const link = e.target.closest('.similar-item');
     if (!link) return;
     e.preventDefault();
-    const name = link.getAttribute('data-plant');
+    const id = link.getAttribute('data-plant');
     const compare = $('#compareSelect');
-    if (!compare.find(`option[value="${name}"]`).length) {
-        const newOption = new Option(name, name, true, true);
+    if (!compare.find(`option[value="${id}"]`).length) {
+        const text = (window.PLANT_INDEX && window.PLANT_INDEX[id]) || id;
+        const newOption = new Option(text, id, true, true);
         compare.append(newOption).trigger('change');
     } else {
         const values = compare.val() || [];
-        if (!values.includes(name)) {
-            compare.val(values.concat(name)).trigger('change');
+        if (!values.includes(id)) {
+            compare.val(values.concat(id)).trigger('change');
         }
     }
 });
@@ -401,10 +462,12 @@ class FiltersManager {
     async init() {
         const res = await fetch('/api/filter-options');
         const data = await res.json();
-        this.applySelect('#filterRoot', data.root_types);
+        this.applySelect('#filterRootSystem', data.root_systems);
+        this.applySelect('#filterRootDepth', data.root_depths);
         this.applySelect('#filterGrowth', data.growth_forms);
         this.applySelect('#filterStress', data.stress_tolerances);
         this.applySelect('#filterVegetable', ['Yes', 'No']);
+        this.applySelect('#filterUsage', data.usage);
     }
     applySelect(selector, items) {
         const el = $(selector);
@@ -412,10 +475,12 @@ class FiltersManager {
         el.select2({ placeholder: 'Any', width: '100%', data: options });
         el.on('change', () => {
             dashboard.filters = {
-                root_type: $('#filterRoot').val() || [],
+                root_system: $('#filterRootSystem').val() || [],
+                root_depth: $('#filterRootDepth').val() || [],
                 growth_form: $('#filterGrowth').val() || [],
                 stress_tolerance: $('#filterStress').val() || [],
-                vegetable: $('#filterVegetable').val() || []
+                vegetable: $('#filterVegetable').val() || [],
+                usage: $('#filterUsage').val() || []
             };
             dashboard.refreshAllCharts();
         });
@@ -429,5 +494,8 @@ document.addEventListener('DOMContentLoaded', () => {
     new PlantSelector();
     new FiltersManager();
     dashboard.refreshAllCharts();
+    // Re-render clusters on control change
+    document.getElementById('clusterMode').addEventListener('change', loadClusterChart);
+    document.getElementById('clusterK').addEventListener('change', loadClusterChart);
     setTimeout(() => LoadingManager.hide(), 500); // Ensure loading overlay is visible briefly
 });
