@@ -65,8 +65,9 @@ class UIManager {
             wrap.style.display = 'block';
             // Delay rendering until after layout is updated
             setTimeout(() => {
-                loadAdvancedClusters();
-                loadParallelCats();
+                loadClusterChart();
+                loadNetworkChart();
+                loadVegetableChart();
             }, 50);
         });
     }
@@ -262,9 +263,8 @@ async function loadRadarChart(selectedPlants) {
 }
 
 async function loadClusterChart() {
-    // Always use combined mode and auto k; use current filters
     const params = buildQuery(dashboard.selectedPlants, dashboard.filters);
-    const res = await fetch(`/api/clusters?cluster_mode=combined&k=auto&${params.toString()}`);
+    const res = await fetch(`/api/clusters?${params.toString()}`);
     const data = await res.json();
     const summaryEl = document.getElementById('clusterSummary');
     if (!data.points || !data.points.length) {
@@ -298,68 +298,30 @@ async function loadClusterChart() {
     }
 }
 
-async function loadParallelCats() {
-    const params = buildQuery(dashboard.selectedPlants, dashboard.filters);
-    const res = await fetch('/api/parallel-categories?' + params.toString());
+async function loadNetworkChart() {
+    const res = await fetch('/api/network');
     const data = await res.json();
-    if (!data || !data.dimensions || !data.dimensions.length) {
-        document.getElementById('parallelCatsChart').innerHTML = '<em>No data available.</em>';
-        return;
-    }
-    const trace = [{
-        type: 'parcats',
-        dimensions: data.dimensions,
-        line: { color: data.cluster_labels || [], colorscale: 'Viridis' },
-        arrangement: 'perpendicular',
-        bundlecolors: true
-    }];
-    const title = data.title || 'Traits Parallel Categories';
-    Plotly.newPlot('parallelCatsChart', trace, {title});
-}
-
-async function loadAdvancedClusters() {
-    const summaryEl = document.getElementById('advancedClusterSummary');
-    const chartId = 'advancedClusterChart';
-    const params = buildQuery(dashboard.selectedPlants, dashboard.filters);
-    const res = await fetch(`/api/clusters?cluster_mode=combined&k=auto&${params.toString()}`);
-    const data = await res.json();
-    if (!data.points || !data.points.length) {
-        document.getElementById(chartId).innerHTML = '<em>No clustering results for current filters.</em>';
-        if (summaryEl) summaryEl.innerHTML = '';
-        return;
-    }
-    const clusters = {};
-    data.points.forEach(p => {
-        clusters[p.Cluster] = clusters[p.Cluster] || {x: [], y: [], text: [], name: `Cluster ${p.Cluster}`};
-        clusters[p.Cluster].x.push(p.PCA1);
-        clusters[p.Cluster].y.push(p.PCA2);
-        clusters[p.Cluster].text.push(p.Label || p.Plant);
-    });
-    const traces = Object.values(clusters).map(c => ({...c, mode: 'markers', type: 'scatter'}));
-    const title = data.meta && data.meta.basis_title ? `PCA Clusters — ${data.meta.basis_title} (k=${data.meta.k})` : 'PCA Clusters';
-    Plotly.newPlot(chartId, traces, {title});
-
-    if (summaryEl && data.summaries) {
-        const items = Object.keys(data.summaries)
-            .sort((a,b) => Number(a) - Number(b))
-            .map(k => {
-                const s = data.summaries[k];
-                return `<div class="summary-item"><strong>C${k}</strong> — n=${s.size}; ` +
-                    `GF: ${s['Growth Form']}; RT: ${s['Root Type']}; ST: ${s['Stress Tolerance']}; Usage: ${s['Primary Usage']}</div>`;
-            }).join('');
-        summaryEl.innerHTML = `<div class="summary-title">Cluster summaries</div>${items}`;
-    }
+    const counts = (data.nodes || []).reduce((acc, n) => {
+        const g = n.group || 'Unknown';
+        acc[g] = (acc[g] || 0) + 1;
+        return acc;
+    }, {});
+    Plotly.newPlot('networkChart', [{
+        type: 'bar',
+        x: Object.keys(counts),
+        y: Object.values(counts)
+    }], {title: 'Network Node Counts (simple view)'});
 }
 
 async function loadVegetableChart() {
-    const res = await fetch('/api/usage');
+    const res = await fetch('/api/vegetables');
     const data = await res.json();
-    const counts = data.usage_counts || {};
-    Plotly.newPlot('usageChart', [{
+    const counts = data.veg_counts || {};
+    Plotly.newPlot('vegetableChart', [{
         type: 'pie',
         labels: Object.keys(counts),
         values: Object.values(counts)
-    }], {title: 'Usage Distribution'});
+    }], {title: 'Vegetable vs Non-Vegetable'});
 }
 
 // Optional charts toggles
@@ -455,7 +417,7 @@ dashboard.updateSelectedPlants = (plants) => {
 
 // Responsive: resize charts on window resize
 window.addEventListener('resize', () => {
-    ['rootTypeChart','sunburstChart','stressBarChart','sankeyChart','radarChart','clusterChart','parallelCatsChart','usageChart','wordCloudChart']
+    ['rootTypeChart','sunburstChart','stressBarChart','sankeyChart','radarChart','clusterChart','networkChart','vegetableChart','wordCloudChart']
 .forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -499,11 +461,11 @@ class FiltersManager {
             // If advanced is open, refresh advanced visuals too
             const wrap = document.getElementById('advancedAnalytics');
             if (wrap && wrap.style.display !== 'none') {
-                loadParallelCats();
+                loadClusterChart();
+                loadNetworkChart();
+                loadVegetableChart();
             }
-            // Always update clusters and usage pie and filtered names
-            loadClusterChart();
-            loadVegetableChart();
+            // Always update filtered names
             updateFilteredList();
         });
     }
@@ -516,9 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
     new PlantSelector();
     new FiltersManager();
     dashboard.refreshAllCharts();
-    // Initial renders for clusters, usage pie and filtered list
-    loadClusterChart();
-    loadVegetableChart();
+    // Initial renders for filtered list only; advanced charts render on demand
     updateFilteredList();
     setTimeout(() => LoadingManager.hide(), 500); // Ensure loading overlay is visible briefly
 });
