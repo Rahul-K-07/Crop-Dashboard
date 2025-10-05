@@ -73,6 +73,7 @@ class UIManager {
         });
         // Simple main search: add first match to comparison on Enter
         const input = document.getElementById('mainSearch');
+        if (!input) return;
         input.addEventListener('keydown', async (e) => {
             if (e.key === 'Enter') {
                 const q = input.value.trim();
@@ -437,7 +438,9 @@ class FiltersManager {
         this.applySelect('#filterUsage', data.usage);
     }
     applySelect(selector, items) {
+        if (typeof $ === 'undefined') { return; }
         const el = $(selector);
+        if (!el || el.length === 0) { return; }
         const options = (items || []).map(v => ({ id: v, text: v }));
         el.select2({ placeholder: 'Any', width: '100%', data: options });
         el.on('change', () => {
@@ -464,6 +467,12 @@ class FiltersManager {
 
 // Initialize everything on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', () => {
+    const isClusterOnly = !!document.getElementById('clusterChart') && !document.querySelector('.tab-nav');
+    if (isClusterOnly) {
+        // Minimal boot for cluster-only page
+        setTimeout(() => { loadClusterChart(); }, 0);
+        return;
+    }
     LoadingManager.show();
     new UIManager();
     new PlantSelector();
@@ -480,6 +489,7 @@ async function updateFilteredList() {
         const res = await fetch('/api/filtered-plants?' + params.toString());
         const data = await res.json();
         const list = document.getElementById('filteredList');
+        if (!list) { return; }
         const anyFilters = (
             (dashboard.selectedPlants && dashboard.selectedPlants.length > 0) ||
             (dashboard.filters && (
